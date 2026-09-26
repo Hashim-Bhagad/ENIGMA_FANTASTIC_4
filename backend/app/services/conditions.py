@@ -875,23 +875,22 @@ AWARENESS_PACKS = {
         "unknown_code": "condition_carbohydrate_unknown",
         "nutrient_key": "carbohydrates_g",
         "unit": "g",
-        "title": "Diabetes awareness: review carbohydrate",
+        "title": "Carbohydrate: check the portion",
         "known_detail": (
-            "Diabetes awareness pack: this record lists total carbohydrate as {amount}; "
-            "review it against the portion you will eat, because sugar-free wording does not "
-            "establish carbohydrate suitability."
+            "Total carbohydrate on the label: {amount}. Sugar-free wording does not "
+            "establish that this product fits the serving you will eat."
         ),
         "unknown_detail": (
             "You recorded diabetes, but the total carbohydrate value is missing, so this "
-            "portion cannot be reviewed for carbohydrate."
+            "serving cannot be checked."
         ),
-        "message": (
-            "Review total carbohydrate and portion; sugar-free does not establish "
-            "carbohydrate suitability."
+        "message": "Check total carbohydrate against your serving; sugar-free wording does not settle it.",
+        "unknown_title": "Carbohydrate: no value to check",
+        "unknown_message": "No total carbohydrate value is available, so this record cannot be checked.",
+        "next_step": (
+            "Check the total carbohydrate figure against the serving you will eat, not the "
+            "sugar-free claim."
         ),
-        "unknown_title": "Carbohydrate unknown for diabetes awareness",
-        "unknown_message": "Total carbohydrate is unknown for the selected diabetes awareness pack.",
-        "next_step": "Check the portion against the carbohydrate guidance from your clinician.",
         "unknown_next_step": "Find the total carbohydrate value on the nutrition panel.",
         "affects": ["condition:diabetes", "nutrient:carbohydrates_g"],
         "kind": "carbohydrate_awareness",
@@ -902,19 +901,22 @@ AWARENESS_PACKS = {
         "nutrient_key": "sodium_mg",
         "unit": "mg",
         "unknown_amount": "unknown",
-        "title": "Hypertension awareness: review sodium",
+        "title": "Sodium: compare with your limit",
         "known_detail": (
-            "Hypertension awareness pack: this record lists sodium as {amount}; review it "
-            "against any personal limit you recorded."
+            "Sodium on the label: {amount}. Any sodium limit you recorded still applies "
+            "to the serving you actually eat."
         ),
         "unknown_detail": (
-            "You recorded hypertension, but the sodium value is missing, so this portion "
-            "cannot be reviewed for sodium."
+            "You recorded hypertension, but the sodium value is missing, so this serving "
+            "cannot be checked."
         ),
-        "message": "Review sodium and any personally recorded limit.",
-        "unknown_title": "Sodium unknown for hypertension awareness",
-        "unknown_message": "Sodium is unknown for the selected hypertension awareness pack.",
-        "next_step": "Compare the portion's sodium with the limit your clinician gave you.",
+        "message": "Compare the sodium figure with any limit you recorded.",
+        "unknown_title": "Sodium: no value to check",
+        "unknown_message": "No sodium value is available, so this record cannot be checked.",
+        "next_step": (
+            "Compare this sodium figure with the limit you recorded, or ask what daily limit "
+            "fits you."
+        ),
         "unknown_next_step": "Find the sodium value on the nutrition panel.",
         "affects": ["condition:hypertension", "nutrient:sodium_mg"],
         "kind": "sodium_awareness",
@@ -924,16 +926,13 @@ AWARENESS_PACKS = {
         "unknown_code": None,
         "nutrient_key": None,
         "unit": "",
-        "title": "CKD: only your recorded limits are checked",
+        "title": "CKD: only recorded limits are checked",
         "known_detail": (
-            "Kidney nutrient guidance depends on individual clinical advice, so this "
-            "assessment evaluates only the limits, allergies and exclusions you recorded."
+            "Kidney nutrient limits depend on your own clinical advice. This check therefore "
+            "covers just the limits, allergies and exclusions you entered yourself."
         ),
         "unknown_detail": None,
-        "message": (
-            "CKD nutrient restrictions depend on individual guidance; only your explicitly "
-            "recorded limits are evaluated."
-        ),
+        "message": "CKD limits are individual, so this check uses only the restrictions you entered.",
         "unknown_title": None,
         "unknown_message": None,
         "next_step": None,
@@ -946,17 +945,20 @@ AWARENESS_PACKS = {
         "unknown_code": None,
         "nutrient_key": "sugars_g",
         "unit": None,
-        "title": "Prediabetes awareness: review sugars",
+        "title": "Prediabetes: added and free sugars",
         "known_detail": (
-            "Prediabetes awareness pack: this record lists total sugars as {amount}; review "
-            "added and free sugars against the guidance you recorded, because total sugars on "
-            "a label include naturally occurring milk and fruit sugars."
+            "Total sugars on the label: {amount}. That figure counts the natural sugars in milk "
+            "and fruit, so the added and free kinds are the ones to limit when blood sugar "
+            "is managed."
         ),
         "unknown_detail": None,
-        "message": "Review added and free sugars; total sugars on a label include natural sugars.",
+        "message": "Total sugars include natural milk and fruit sugars; added and free sugars are the ones to watch.",
         "unknown_title": None,
         "unknown_message": None,
-        "next_step": "Compare the free-sugar portion against the goal your clinician set.",
+        "next_step": (
+            "Compare the added and free sugars with the target you recorded, or ask which "
+            "target applies to you."
+        ),
         "unknown_next_step": None,
         "affects": ["condition:prediabetes", "nutrient:sugars_g"],
         "kind": "sugar_awareness",
@@ -966,17 +968,16 @@ AWARENESS_PACKS = {
         "unknown_code": None,
         "nutrient_key": "saturated_fat_g",
         "unit": None,
-        "title": "Dyslipidaemia awareness: review saturated fat",
+        "title": "Saturated fat: check the amount",
         "known_detail": (
-            "Dyslipidaemia awareness pack: this record lists saturated fat as {amount}; "
-            "saturated fat raises LDL cholesterol, so review it against the ceiling you "
-            "recorded and favour unsaturated fats where you can."
+            "Saturated fat on the label: {amount}. This fat raises LDL cholesterol, so "
+            "compare it with the ceiling you recorded if you set one."
         ),
         "unknown_detail": None,
-        "message": "Review saturated fat; it raises LDL cholesterol.",
+        "message": "Saturated fat raises LDL cholesterol; compare it with your recorded ceiling.",
         "unknown_title": None,
         "unknown_message": None,
-        "next_step": "Compare the saturated fat portion against your recorded limit.",
+        "next_step": "Compare the saturated fat figure with your recorded ceiling, or ask which ceiling fits you.",
         "unknown_next_step": None,
         "affects": ["condition:dyslipidaemia", "nutrient:saturated_fat_g"],
         "kind": "saturated_fat_awareness",
@@ -986,17 +987,17 @@ AWARENESS_PACKS = {
         "unknown_code": None,
         "nutrient_key": "sugars_g",
         "unit": None,
-        "title": "Gout awareness: review sugars and purines",
+        "title": "Gout: fructose and purines",
         "known_detail": (
-            "Gout awareness pack: this record lists total sugars as {amount}; "
-            "fructose-sweetened foods and drinks raise uric acid, so review sugars alongside "
-            "purine-rich ingredients and alcohol."
+            "Total sugars on the label: {amount}. Fructose-sweetened food and drink raise "
+            "uric acid, so check the ingredient list too for purine-rich items such as "
+            "shellfish, liver and beer."
         ),
         "unknown_detail": None,
-        "message": "Review sugars and purine-rich ingredients; fructose raises uric acid.",
+        "message": "Sugars, purine-rich ingredients and alcohol all matter for uric acid.",
         "unknown_title": None,
         "unknown_message": None,
-        "next_step": "Compare the sugars and any purine-rich ingredients with your uric acid goal.",
+        "next_step": "Compare the sugars and any purine-rich ingredients with your uric acid target.",
         "unknown_next_step": None,
         "affects": ["condition:gout", "nutrient:sugars_g"],
         "kind": "sugar_awareness",
@@ -1006,17 +1007,17 @@ AWARENESS_PACKS = {
         "unknown_code": None,
         "nutrient_key": "sugars_g",
         "unit": None,
-        "title": "Fatty liver awareness: review sugars and saturated fat",
+        "title": "Fatty liver: sugars and saturated fat",
         "known_detail": (
-            "Fatty liver awareness pack: this record lists total sugars as {amount}; added "
-            "sugars and saturated fat are the food levers usually discussed for liver fat, so "
-            "review them together with total energy."
+            "Total sugars on the label: {amount}. Added sugars, saturated fat and total "
+            "energy are the food factors usually discussed for liver fat, so review them "
+            "together."
         ),
         "unknown_detail": None,
-        "message": "Review added sugars and saturated fat; both relate to liver fat.",
+        "message": "Added sugars and saturated fat are the food factors usually discussed for liver fat.",
         "unknown_title": None,
         "unknown_message": None,
-        "next_step": "Compare the sugars and saturated fat with the change your clinician advised.",
+        "next_step": "Compare the added sugars and saturated fat with the changes you agreed with your clinician.",
         "unknown_next_step": None,
         "affects": ["condition:nafld", "nutrient:sugars_g", "nutrient:saturated_fat_g"],
         "kind": "sugar_awareness",
@@ -1026,16 +1027,16 @@ AWARENESS_PACKS = {
         "unknown_code": None,
         "nutrient_key": "sugars_g",
         "unit": None,
-        "title": "PCOS awareness: review sugars and saturated fat",
+        "title": "PCOS: free sugars and saturated fat",
         "known_detail": (
-            "PCOS awareness pack: this record lists total sugars as {amount}; free sugars and "
-            "saturated fat are commonly reduced when insulin resistance is part of PCOS."
+            "Total sugars on the label: {amount}. Where insulin resistance is part of "
+            "PCOS, free sugars and saturated fat are the two usually reduced."
         ),
         "unknown_detail": None,
-        "message": "Review free sugars and saturated fat; both relate to insulin resistance.",
+        "message": "Free sugars and saturated fat are the usual targets when insulin resistance is present.",
         "unknown_title": None,
         "unknown_message": None,
-        "next_step": "Compare the sugars and saturated fat with your PCOS plan.",
+        "next_step": "Compare the free sugars and saturated fat with the plan you recorded.",
         "unknown_next_step": None,
         "affects": ["condition:pcos", "nutrient:sugars_g", "nutrient:saturated_fat_g"],
         "kind": "sugar_awareness",
@@ -1045,17 +1046,17 @@ AWARENESS_PACKS = {
         "unknown_code": None,
         "nutrient_key": None,
         "unit": "",
-        "title": "Anaemia awareness: pair iron with vitamin C",
+        "title": "Iron: pair it with vitamin C",
         "known_detail": (
-            "Anaemia awareness pack: iron is the nutrient of concern here; this record does "
-            "not carry an iron value, so no iron number is shown. Pair iron-rich ingredients "
-            "with a vitamin C source and keep tea, coffee and calcium away from that meal."
+            "This record carries no iron value, so no iron number is shown. Pair iron-rich "
+            "ingredients with a vitamin C source, and keep tea, coffee and calcium away from "
+            "that meal."
         ),
         "unknown_detail": None,
-        "message": "Pair iron-rich ingredients with vitamin C; tea, coffee and calcium block it.",
+        "message": "Pair iron-rich ingredients with vitamin C; tea, coffee and calcium work against it.",
         "unknown_title": None,
         "unknown_message": None,
-        "next_step": "Check whether this record names an iron-rich ingredient and a vitamin C source.",
+        "next_step": "Check whether this product names an iron-rich ingredient and a vitamin C source.",
         "unknown_next_step": None,
         "affects": ["condition:iron_deficiency_anaemia", "nutrient:iron"],
         "kind": "iron_pairing",
@@ -1065,17 +1066,16 @@ AWARENESS_PACKS = {
         "unknown_code": None,
         "nutrient_key": None,
         "unit": "",
-        "title": "B12 deficiency awareness: check adequacy",
+        "title": "B12: check the product covers it",
         "known_detail": (
-            "Vitamin B12 deficiency awareness pack: B12 is the nutrient of concern; this record "
-            "does not carry a B12 value, so no number is shown. B12 occurs naturally mainly in "
-            "animal foods, with some fortified products."
+            "This record carries no B12 value, so no number is shown. B12 occurs naturally "
+            "mainly in animal foods, with some fortified products."
         ),
         "unknown_detail": None,
-        "message": "Check B12 adequacy; no numeric target is set from a food record.",
+        "message": "Check B12 sources; no numeric target comes from a food record.",
         "unknown_title": None,
         "unknown_message": None,
-        "next_step": "Ask whether fortified foods or a supplement cover your B12 need.",
+        "next_step": "Check the ingredients for B12-fortified items, or ask whether a supplement is needed.",
         "unknown_next_step": None,
         "affects": ["condition:vitamin_b12_deficiency", "nutrient:vitamin_b12"],
         "kind": "adequacy_awareness",
@@ -1085,17 +1085,17 @@ AWARENESS_PACKS = {
         "unknown_code": None,
         "nutrient_key": None,
         "unit": "",
-        "title": "Vitamin D deficiency awareness: check adequacy",
+        "title": "Vitamin D: check the product covers it",
         "known_detail": (
-            "Vitamin D deficiency awareness pack: vitamin D is the nutrient of concern; this "
-            "record does not carry a vitamin D value, so no number is shown. Fatty fish, egg "
-            "yolk and fortified foods contribute, and supplementation is usually clinician-led."
+            "This record carries no vitamin D value, so no number is shown. Fatty fish, egg "
+            "yolk and fortified foods contribute, and supplements are usually led by your "
+            "clinician."
         ),
         "unknown_detail": None,
-        "message": "Check vitamin D adequacy; no numeric target is set from a food record.",
+        "message": "Check vitamin D sources; no numeric target comes from a food record.",
         "unknown_title": None,
         "unknown_message": None,
-        "next_step": "Ask which vitamin D amount and recheck schedule apply to you.",
+        "next_step": "Check for vitamin D-fortified items or oily fish, and ask which supplement amount applies to you.",
         "unknown_next_step": None,
         "affects": ["condition:vitamin_d_deficiency", "nutrient:vitamin_d"],
         "kind": "adequacy_awareness",
@@ -1105,17 +1105,16 @@ AWARENESS_PACKS = {
         "unknown_code": None,
         "nutrient_key": None,
         "unit": "",
-        "title": "Hypothyroidism awareness: check iodine and timing",
+        "title": "Hypothyroidism: iodine and medicine timing",
         "known_detail": (
-            "Hypothyroidism awareness pack: iodine is the nutrient of concern; this record "
-            "does not carry an iodine value, so no number is shown. Keep food and supplements "
-            "away from the timing your clinician set for replacement hormone."
+            "This record carries no iodine value, so no number is shown. Keep food and "
+            "supplements away from the times you take replacement hormone."
         ),
         "unknown_detail": None,
-        "message": "Check iodine adequacy and keep food away from hormone timing.",
+        "message": "Iodine matters, and food timing matters around your thyroid medicine.",
         "unknown_title": None,
         "unknown_message": None,
-        "next_step": "Ask about iodine intake and the timing of your thyroid medicine.",
+        "next_step": "Ask about iodine intake and how long to leave between food and your thyroid medicine.",
         "unknown_next_step": None,
         "affects": ["condition:hypothyroidism", "nutrient:iodine"],
         "kind": "adequacy_awareness",
@@ -1125,17 +1124,16 @@ AWARENESS_PACKS = {
         "unknown_code": None,
         "nutrient_key": None,
         "unit": "",
-        "title": "Hyperthyroidism awareness: check iodine and calcium",
+        "title": "Hyperthyroidism: iodine and calcium",
         "known_detail": (
-            "Hyperthyroidism awareness pack: iodine and calcium are the nutrients of concern; "
-            "this record does not carry those values, so no numbers are shown. Bone and "
-            "nutrient needs change while the thyroid is overactive."
+            "This record carries no iodine or calcium values, so no numbers are shown. "
+            "Nutrient and bone needs change while the thyroid is overactive."
         ),
         "unknown_detail": None,
-        "message": "Check iodine and calcium; needs change while the thyroid is overactive.",
+        "message": "Iodine and calcium matter; needs change while the thyroid is overactive.",
         "unknown_title": None,
         "unknown_message": None,
-        "next_step": "Ask whether iodine-rich foods and bone monitoring apply to you.",
+        "next_step": "Ask whether iodine-rich foods and bone checks apply to you.",
         "unknown_next_step": None,
         "affects": ["condition:hyperthyroidism", "nutrient:iodine", "nutrient:calcium"],
         "kind": "adequacy_awareness",
@@ -1145,17 +1143,16 @@ AWARENESS_PACKS = {
         "unknown_code": None,
         "nutrient_key": "calcium_mg",
         "unit": None,
-        "title": "Osteoporosis awareness: review calcium and sodium",
+        "title": "Osteoporosis: calcium and sodium",
         "known_detail": (
-            "Osteoporosis awareness pack: calcium is the nutrient of concern; this record "
-            "does not carry a calcium value, so no number is shown. Calcium and vitamin D "
-            "support bone, and very high sodium increases calcium loss."
+            "Calcium on the label: {amount}. Calcium and vitamin D support bone, and a "
+            "very high sodium intake increases calcium loss."
         ),
         "unknown_detail": None,
-        "message": "Review calcium and sodium; both affect bone strength.",
+        "message": "Calcium and vitamin D support bone; high sodium increases calcium loss.",
         "unknown_title": None,
         "unknown_message": None,
-        "next_step": "Check whether this record names a calcium-rich ingredient.",
+        "next_step": "Check whether this product names a calcium-rich ingredient, and keep sodium portions modest.",
         "unknown_next_step": None,
         "affects": ["condition:osteoporosis", "nutrient:calcium"],
         "kind": "adequacy_awareness",
@@ -1165,14 +1162,14 @@ AWARENESS_PACKS = {
         "unknown_code": None,
         "nutrient_key": None,
         "unit": "",
-        "title": "Pregnancy awareness: check folate and iron",
+        "title": "Pregnancy: folate, iron and food safety",
         "known_detail": (
-            "Pregnancy awareness pack: folate is the nutrient of concern early and iron later; "
-            "this record does not carry those values, so no numbers are shown. Nutrient and "
-            "food-safety advice is set with the maternity team."
+            "This record carries no folate or iron values, so no numbers are shown. Folate "
+            "matters most early and iron later, and food-safety advice is set with your "
+            "maternity team."
         ),
         "unknown_detail": None,
-        "message": "Check folate and iron; advice is set with the maternity team.",
+        "message": "Folate early and iron later; food-safety advice comes from your maternity team.",
         "unknown_title": None,
         "unknown_message": None,
         "next_step": "Ask which supplements and iron sources fit your stage of pregnancy.",
@@ -1185,17 +1182,16 @@ AWARENESS_PACKS = {
         "unknown_code": None,
         "nutrient_key": "sodium_mg",
         "unit": None,
-        "title": "Heart failure awareness: review sodium",
+        "title": "Heart failure: sodium and fluid limits",
         "known_detail": (
-            "Heart failure awareness pack: sodium is the nutrient of concern; this record "
-            "lists sodium as {amount}. Sodium and sometimes fluid limits are individualised, "
-            "and potassium advice depends on the medicines used."
+            "Sodium on the label: {amount}. Sodium and sometimes fluid limits are set for "
+            "you individually, and potassium advice depends on the medicines you take."
         ),
         "unknown_detail": None,
-        "message": "Review sodium; sodium and fluid limits are individualised.",
+        "message": "Sodium and fluid limits are individual and depend on your medicines.",
         "unknown_title": None,
         "unknown_message": None,
-        "next_step": "Compare the sodium portion with the limit your clinician gave you.",
+        "next_step": "Compare this sodium figure with the limit you were given, and ask how fluid fits in.",
         "unknown_next_step": None,
         "affects": ["condition:heart_failure", "nutrient:sodium_mg"],
         "kind": "sodium_awareness",

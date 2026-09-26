@@ -66,11 +66,12 @@ describe('api client transport', () => {
   it('aborts a stalled request and surfaces a timeout error', async () => {
     vi.useFakeTimers();
     // A fetch that only settles when the client aborts, so the timeout path is the sole outcome.
-    vi.stubGlobal('fetch', vi.fn((_url: string, init: FetchInit) => {
-      const { promise, reject } = Promise.withResolvers<never>();
+    vi.stubGlobal('fetch', vi.fn((_url: string, init: FetchInit) => new Promise<never>((_resolve, reject) => {
+      // Settle only when the client aborts, so the timeout path is the sole outcome. Written
+      // with the Promise constructor rather than Promise.withResolvers (Node 22+) so the test
+      // also runs on the Node 20 CI image.
       init.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
-      return promise;
-    }));
+    })));
     const { api, TIMEOUT_MESSAGE } = await import('./client');
     const assertion = expect(api.me('token')).rejects.toMatchObject({ code: 'timeout', message: TIMEOUT_MESSAGE });
     await vi.advanceTimersByTimeAsync(15_000);

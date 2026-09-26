@@ -561,11 +561,11 @@ def assess(profile: ProfileData, food: FoodObservation, portion: float | None = 
             finding(
                 "condition_pack_unsupported",
                 "unresolved",
-                "No awareness pack for a recorded condition",
-                f"No supported awareness pack covers {joined}, so only your explicitly recorded "
-                "limits, allergies, exclusions and goals were checked.",
-                message="No condition-specific assessment pack is active; explicit recorded "
-                "restrictions are still checked.",
+                "No specific checks for this condition",
+                f"No specific checks cover {joined}, so only the limits, allergies, exclusions "
+                "and goals you recorded were checked.",
+                message="No condition-specific checks are active; your recorded restrictions "
+                "are still checked.",
                 next_step="Record any specific restriction your clinician gave you as a limit, "
                 "allergy or exclusion.",
                 affects=[f"condition:{x}" for x in unrecognised],
@@ -581,10 +581,10 @@ def assess(profile: ProfileData, food: FoodObservation, portion: float | None = 
                 finding(
                     "condition_pack_unsupported",
                     "unresolved",
-                    "No awareness pack for a recorded condition",
-                    f"No supported awareness pack covers {slug}, so only your explicitly "
-                    "recorded limits, allergies, exclusions and goals were checked.",
-                    message="No condition-specific assessment pack is active; explicit recorded "
+                    "No specific checks for this condition",
+                    f"No specific checks cover {slug}, so only the limits, allergies, "
+                    "exclusions and goals you recorded were checked.",
+                    message="No condition-specific checks are active; your recorded "
                     "restrictions are still checked.",
                     next_step="Record any specific restriction your clinician gave you as a "
                     "limit, allergy or exclusion.",

@@ -8,6 +8,24 @@ import { useApp } from '@/src/state/AppContext';
 import { colors } from '@/src/theme';
 import { FoodFacts } from '@/src/components/food-facts';
 
+// The engine carries canonical identifiers and subtypes; show the words a person reads on a pack.
+const SUBTYPE_LABELS: Record<string, string> = {
+  refined_wheat_flour: 'refined wheat flour (maida, all-purpose flour)',
+  whole_wheat_flour: 'whole-wheat flour (atta)',
+  wheat_flour_unspecified: 'wheat flour, type not stated',
+  other_flour: 'a non-wheat flour',
+  polyol: 'a polyol sweetener (sugar alcohol)',
+  non_nutritive_sweetener: 'a non-nutritive sweetener',
+  sugars: 'a sugar-family ingredient',
+};
+
+function ingredientTermLabel(item: { canonical_identity?: string | null; subtype?: string | null; matched_term?: string | null }): string {
+  const subtype = item.subtype ? SUBTYPE_LABELS[item.subtype] : undefined;
+  if (subtype) return subtype;
+  const identity = (item.canonical_identity || '').replace(/^alias:/, '').replaceAll('_', ' ');
+  return identity || item.matched_term || 'a known ingredient name';
+}
+
 export default function AssessmentScreen() {
   const { assessment } = useApp();
   if (!assessment) return <Screen><PageHeader eyebrow="Your label check" title="No assessment yet" subtitle="Review a product label and ask the backend to assess it first." back /><Button title="Scan or search a product" icon="barcode-scan" onPress={() => router.push('/(tabs)/scan')} /></Screen>;
@@ -35,8 +53,8 @@ export default function AssessmentScreen() {
     <SectionTitle title="Findings" action={`${findingCount(result)} items`} />
     <FindingsList result={result} />
     {result.source_warnings.map((warning, index) => <Card key={`warning-${index}`} style={st.warning}><MaterialCommunityIcons name="information-outline" size={17} color={colors.amber} /><Text style={st.warningText}>{warning}</Text></Card>)}
-    {result.ingredient_findings?.length ? <Card style={{ gap: 10 }}><Text style={st.findingTitle}>Recognized ingredient names</Text>{result.ingredient_findings.map((item, index) => <Text selectable key={index} style={st.coverage}>“{item.raw_evidence}” → {(item.canonical_identity || item.subtype).replaceAll('_', ' ')}</Text>)}<Text style={st.coverage}>Names matched against vocabulary {result.ingredient_taxonomy_version || 'unknown'}. Recognition does not establish a nutrient amount.</Text></Card> : null}
-    {result.ingredient_findings?.length ? <Card style={st.scope}><MaterialCommunityIcons name="format-list-bulleted" size={18} color={colors.blue} /><Text style={st.coverage}>Ingredient terms are matched against a versioned vocabulary (v{result.ingredient_taxonomy_version ?? 'unknown'}). A recognized name is not a nutrient amount, proof of hidden contents, or a clinical conclusion.</Text></Card> : null}
+    {result.ingredient_findings?.length ? <Card style={{ gap: 10 }}><Text style={st.findingTitle}>Recognized ingredient names</Text>{result.ingredient_findings.map((item, index) => <Text selectable key={index} style={st.coverage}>“{item.raw_evidence}” — recognized as {ingredientTermLabel(item)}</Text>)}<Text style={st.coverage}>A recognized name is a wording match only: it does not give an amount, and it does not prove what the manufacturer used.</Text></Card> : null}
+    {result.ingredient_findings?.length ? <Card style={st.scope}><MaterialCommunityIcons name="format-list-bulleted" size={18} color={colors.blue} /><Text style={st.coverage}>Names are matched against a fixed ingredient vocabulary (version {result.ingredient_taxonomy_version ?? 'unknown'}). A match is wording, not an amount, and not proof of hidden ingredients.</Text></Card> : null}
     <Card style={st.scope}><MaterialCommunityIcons name="book-open-variant" size={18} color={colors.primary} /><View style={{ flex: 1 }}><Text style={st.findingTitle}>Assessment saved</Text><Text style={st.coverage}>This record stores the food observations and profile version used. Update your profile and reassess to apply changed restrictions.</Text></View></Card>
     <SectionTitle title="Next step" />
     {!isMeal ? <Button title="Compare packaged replacements" icon="swap-horizontal" onPress={() => router.push('/replacements')} /> : <Button title="Edit ingredients & reassess" icon="pencil-outline" onPress={() => router.push('/dish')} />}
