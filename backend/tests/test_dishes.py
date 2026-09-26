@@ -117,14 +117,16 @@ def test_partial_estimate_covers_matched_ingredients_and_names_what_it_left_out(
     estimate = dish["block"]["estimate"]
     assert estimate["available"] is True
     assert estimate["basis"] == "100g"
-    assert estimate["matched_count"] == 2
-    assert estimate["matched_grams"] == 200
-    # Sodium per 100 g of the two weighed references: (5*1 + 10*1) / 200 * 100 = 7.5 mg.
-    assert estimate["nutrients"]["sodium_mg"] == 7.5
-    assert {item["input_text"] for item in estimate["excluded"]} == {"Unicorn steak", "Salt"}
+    # Rice, lentils and salt all resolve now: salt comes from the staples table, so it counts
+    # towards sodium instead of being silently dropped from the estimate.
+    assert estimate["matched_count"] == 3
+    assert estimate["matched_grams"] == 203.0
+    assert estimate["nutrients"]["sodium_mg"] > 500, "salt must contribute sodium"
+    assert {item["input_text"] for item in estimate["excluded"]} == {"Unicorn steak"}
     assert all(item["reason"] for item in estimate["excluded"])
-    assert "2 of 4" in estimate["coverage_note"]
+    assert "3 of 4" in estimate["coverage_note"]
     assert "Left out" in estimate["coverage_note"]
+    assert any("staple" in item.lower() for item in estimate["assumptions"])
     assert any("floor" in warning for warning in dish["food"].source.warnings)
     assert any(item["code"] == "limit_daily_contribution" for item in result["considerations"])
 
@@ -343,10 +345,10 @@ def test_exclusion_list_names_each_ingredient_once_and_never_a_weighed_one(db_en
         )
     estimate = dish["block"]["estimate"]
     listed = [item["input_text"] for item in estimate["excluded"]]
-    assert listed.count("Salt") == 1, "an unmatched ingredient is listed once"
-    assert "Rice" in listed, "a matched but unweighed ingredient is left out and named"
-    assert estimate["matched_count"] == 1
-    assert estimate["matched_grams"] == 100
+    assert listed.count("Rice") == 1, "an unweighed ingredient is listed once"
+    assert "Salt" not in listed, "salt resolves through the staples table, so it is counted"
+    assert estimate["matched_count"] == 2
+    assert estimate["matched_grams"] == 102.0
 
 
 # --- A model-drafted starting list for a dish name ------------------------------------------
@@ -548,3 +550,43 @@ def test_draft_limits_requests_per_user(client):
     limited = client.post(DRAFT_URL, headers=headers, json={"name": "Fried rice"})
     assert limited.json()["code"] == "rate_limited"
     assert limited.headers["Retry-After"]
+
+
+def test_kitchen_aliases_and_staples_resolve_everyday_wording(db_engine):
+    """`poha` is IFCT `Rice, flakes`, and salt/sugar/oil carry standard reference values."""
+    with Session(db_engine) as session:
+        seed(
+            session,
+            "A011",
+            "Rice, flakes",
+            "100g_edible_portion",
+            {"sodium_mg": 10, "energy_kcal": 346},
+        )
+        session.commit()
+        dish = build_dish(
+            session,
+            dish_request(
+                ingredients=[
+                    {"text": "Poha", "grams": 80},
+                    {"text": "Salt", "grams": 2},
+                    {"text": "Sugar", "grams": 10},
+                    {"text": "Oil", "grams": 10},
+                    {"text": "Unobtainium", "grams": 5},
+                ]
+            ),
+        )
+    block = dish["block"]
+    matched = {item["input_text"]: item for item in block["matches"]}
+    assert matched["Poha"]["code"] == "A011" and matched["Poha"]["matched_by"] == "alias"
+    assert matched["Poha"]["note"], "an alias match explains itself"
+    assert matched["Salt"]["matched_by"] == "staple"
+    assert matched["Sugar"]["matched_by"] == "staple"
+    assert matched["Oil"]["matched_by"] == "staple"
+
+    estimate = block["estimate"]
+    assert estimate["available"] is True
+    assert estimate["matched_count"] == 4
+    assert {item["input_text"] for item in estimate["excluded"]} == {"Unobtainium"}
+    # Sodium comes from rice flakes plus the weighed salt, then scales to per 100 g of the dish.
+    assert estimate["nutrients"]["sodium_mg"] and estimate["nutrients"]["sodium_mg"] > 100
+    assert any("staple" in item.lower() for item in estimate["assumptions"])

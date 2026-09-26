@@ -16,6 +16,13 @@ from sqlalchemy.orm import Session
 from app.models import ReferenceFood
 from app.schemas import DishRequest, FoodObservation, ProfileData
 from app.services.assessment import assess
+from app.services.kitchen_terms import (
+    ALIASES,
+    KITCHEN_TERMS_VERSION,
+    STAPLE_TERMS,
+    STAPLES,
+    Staple,
+)
 
 # Reference composition stores these keys; only label vocabulary keys are carried into the
 # estimate (available carbohydrate/free sugars are not silently equated to label values).
@@ -163,46 +170,82 @@ def _nutrient_value(row: ReferenceFood, key: str):
     return value if isinstance(value, (int, float)) else None
 
 
+class StapleRow:
+    """A composition value for something IFCT does not carry (salt, sugar, butter, oil).
+
+    It presents the same ``code``/``name``/``data`` shape as a ``ReferenceFood`` row so the
+    estimate can treat it identically, while the result keeps saying it is not an IFCT row.
+    """
+
+    def __init__(self, term: str, staple: Staple):
+        self.code = f"staple:{normalize_name(term)}"
+        self.name = staple.name
+        self.data = {"basis": staple.basis, "nutrients": dict(staple.nutrients)}
+        self.source = {"reference": staple.source, "kind": "staple"}
+
+
+def resolve_ingredient(
+    session: Session, item, index: dict
+) -> tuple[object | None, str, str | None]:
+    """Resolve one typed ingredient: explicit code, kitchen alias, staple, then exact name.
+
+    Returns ``(row, matched_by, note)``. ``note`` explains the match when it is not an exact
+    IFCT name, so the result can say why a staple or an alias was used.
+    """
+    if item.reference_code:
+        row = session.get(ReferenceFood, item.reference_code)
+        if row is None:
+            return None, "reference_code", f"No reference food has code {item.reference_code}."
+        return row, "reference_code", None
+
+    term = normalize_name(item.text)
+    alias_code = ALIASES.get(term)
+    if alias_code:
+        row = session.get(ReferenceFood, alias_code)
+        if row is not None:
+            return row, "alias", f"“{item.text}” matched {row.name} ({row.code}) by kitchen name."
+    staple_key = STAPLE_TERMS.get(term)
+    staple = STAPLES.get(staple_key) if staple_key else None
+    if staple is not None:
+        return (
+            StapleRow(term, staple),
+            "staple",
+            f"“{item.text}” used a standard composition value (not IFCT).",
+        )
+    row = index.get(term)
+    if row is not None:
+        return row, "name", None
+    return (
+        None,
+        "name",
+        (
+            "No reference food matches this name exactly; check the spelling or pick a match from "
+            "the reference-food search."
+        ),
+    )
+
+
 def build_dish(session: Session, body: DishRequest) -> dict:
     """Resolve ingredients, estimate per-100g nutrients when fully known, and build the block."""
     index = reference_index(session)
     matches, unmatched, resolved = [], [], []
     for item in body.ingredients:
-        row = None
-        matched_by = "name"
-        if item.reference_code:
-            row = session.get(ReferenceFood, item.reference_code)
-            matched_by = "reference_code"
-            if row is None:
-                unmatched.append(
-                    {
-                        "input_text": item.text,
-                        "reason": f"No reference food has code {item.reference_code}.",
-                    }
-                )
-                continue
-        else:
-            row = index.get(normalize_name(item.text))
-            if row is None:
-                unmatched.append(
-                    {
-                        "input_text": item.text,
-                        "reason": "No reference food matches this name exactly; check the spelling "
-                        "or pick a match from the reference-food search.",
-                    }
-                )
-                continue
+        row, matched_by, note = resolve_ingredient(session, item, index)
+        if row is None:
+            unmatched.append({"input_text": item.text, "reason": note or "No reference match."})
+            continue
         data = row.data if isinstance(row.data, dict) else {}
-        matches.append(
-            {
-                "input_text": item.text,
-                "code": row.code,
-                "name": row.name,
-                "basis": data.get("basis"),
-                "grams": item.grams,
-                "matched_by": matched_by,
-            }
-        )
+        entries = {
+            "input_text": item.text,
+            "code": row.code,
+            "name": row.name,
+            "basis": data.get("basis"),
+            "grams": item.grams,
+            "matched_by": matched_by,
+        }
+        if note:
+            entries["note"] = note
+        matches.append(entries)
         resolved.append((row, item.grams))
 
     # A reference table is not a recipe book: salt, sugar, butter or a house mix may have no
@@ -271,6 +314,16 @@ def build_dish(session: Session, body: DishRequest) -> dict:
         "Reference data report available carbohydrate and free sugars, not label total "
         "carbohydrate and sugars, so carbohydrate and sugar goals cannot be evaluated here."
     )
+    if any(str(match.get("code", "")).startswith("staple:") for match in matches):
+        assumptions.append(
+            "Salt, sugar, oil, butter and cream are not IFCT rows: those lines use standard "
+            "composition references and are marked as staples in the match list."
+        )
+    if any(match.get("matched_by") == "alias" for match in matches):
+        assumptions.append(
+            f"Some names were resolved to the same food by a different name "
+            f"(kitchen vocabulary {KITCHEN_TERMS_VERSION}); the match list shows both."
+        )
 
     ingredients_text = ", ".join(item.text for item in body.ingredients)
     food = FoodObservation.model_validate(
