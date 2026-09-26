@@ -35,6 +35,7 @@ Expo embeds `EXPO_PUBLIC_*` variables in the client bundle. Put only the backend
 
 - Create an account or sign in; load and save a backend-owned profile.
 - Search product names/brands, scan a barcode with Expo Camera, or enter it manually.
+- Verify a 14-digit FSSAI license number from the scan screen; the verification key stays on the backend.
 - Upload a label photograph to the authenticated Fireworks extraction endpoint; review and correct the returned observations.
 - Confirm the package declarations, submit an assessment using the current profile version, and render its findings.
 - Review all ten supported nutrients, open the source record, and expand the raw-field/unit-conversion trace. Missing values stay unknown; changing the measurement basis clears the amounts for re-entry.

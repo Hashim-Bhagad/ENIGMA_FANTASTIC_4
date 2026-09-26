@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     off_user_agent: str = "DietaryRiskPrototype/0.1 (local hackathon prototype)"
     provider_timeout: float = Field(default=20, gt=0, le=60)
     apify_token: SecretStr | None = None
+    theverifico_api_key: SecretStr | None = None
     typesafe_api_key: SecretStr | None = None
     typesafe_model: str = "jev-1.13.0"
     fireworks_api_key: SecretStr | None = None
@@ -43,7 +44,13 @@ class Settings(BaseSettings):
     max_body_bytes: int = Field(default=6 * 1024 * 1024, ge=1024)
     log_level: str = "INFO"
 
-    @field_validator("apify_token", "typesafe_api_key", "fireworks_api_key", mode="before")
+    @field_validator(
+        "apify_token",
+        "theverifico_api_key",
+        "typesafe_api_key",
+        "fireworks_api_key",
+        mode="before",
+    )
     @classmethod
     def empty_key(cls, value):
         return None if value == "" else value

@@ -23,6 +23,7 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:8081","http://localhost:19006"]}
       OFF_USER_AGENT: ${OFF_USER_AGENT:-DietaryRiskPrototype/0.1 (local hackathon prototype)}
       APIFY_TOKEN: ${APIFY_TOKEN:-}
+      THEVERIFICO_API_KEY: ${THEVERIFICO_API_KEY:-}
       TYPESAFE_API_KEY: ${TYPESAFE_API_KEY:-}
       FIREWORKS_API_KEY: ${FIREWORKS_API_KEY:-}
       TYPESAFE_MODEL: ${TYPESAFE_MODEL:-jev-1.13.0}

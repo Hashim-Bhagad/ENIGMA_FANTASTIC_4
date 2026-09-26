@@ -66,7 +66,7 @@ can branch without matching prose:
 | `rate_limited` | 429 | Rate limit exceeded; the response also carries `Retry-After` seconds. |
 | `payload_too_large` | 413 | Declared or streamed request body exceeded the cap. |
 | `unsupported_media_type` | 415 | Reserved for unsupported upload content types. |
-| `provider_unavailable` | 503 | Open Food Facts, Fireworks, or TypeSafe failed or timed out. |
+| `provider_unavailable` | 503 | Open Food Facts, Fireworks, TypeSafe, or TheVerifico failed, timed out, or is not configured. |
 | `internal_error` | 5xx | Unhandled server failure. |
 
 Rate limits are token buckets with defaults resolved from configuration. They are
@@ -77,7 +77,7 @@ per-process (the app assumes a single Uvicorn worker) and can be disabled entire
 | --- | --- | --- |
 | `POST /api/auth/register`, `POST /api/auth/login` | 10 / minute | client IP |
 | `POST /api/labels/extract` | 10 / minute | user |
-| Provider-touching product reads (`GET /api/products/barcode/{barcode}`, `GET /api/products/search/live`, `GET /api/products/search`) | 30 / minute | user |
+| Provider calls (`GET /api/products/barcode/{barcode}`, `GET /api/products/search/live`, `GET /api/products/search`, `POST /api/verification/fssai`) | 30 / minute | user |
 | `POST /api/recommendations` | 20 / minute | user |
 
 A middleware enforces a maximum request body of `MAX_BODY_BYTES` (default 6 MiB,
@@ -97,6 +97,7 @@ cap for the `file` upload inside that limit. Provider-touching product reads als
 | Search saved catalog | `GET /api/products?q=&category=&limit=` | Case-insensitive name/brand match in the local catalog; `limit` is 1–50, default 20. |
 | Search (unified) | `GET /api/products/search?q=&include_live=` | Numeric queries take the barcode path; names search saved records and, with `include_live=true`, Open Food Facts. Live failure keeps saved results. |
 | Search live only | `GET /api/products/search/live?q=` | Direct Open Food Facts search and persistence; at least two characters. |
+| Verify an FSSAI license | `POST /api/verification/fssai` | Checks a 14-digit license number through TheVerifico; requires a bearer token and `THEVERIFICO_API_KEY` on the backend. |
 | Barcode | `GET /api/products/barcode/{barcode}` | 8, 12, 13, or 14 digit barcode; saved snapshot unless `refresh=true`. |
 | Load product | `GET /api/products/{product_id}` | Saved normalized observation. |
 | Trace a value | `GET /api/products/{product_id}/provenance` | Per-field source mapping, raw values, units, conversions, missing-data reasons, timestamps, and a source-response hash. |
@@ -213,7 +214,7 @@ IFCT contains 542 reference foods. Its units are read from the dataset metadata;
 
 ## AI boundaries and third-party data
 
-Fireworks is configured through `FIREWORKS_API_KEY` and `FIREWORKS_MODEL`; photo extraction requires a compatible vision model and structured output. Extracted observations require review, and code performs unit conversion. Jev/TypeSafe uses `TYPESAFE_API_KEY` and `TYPESAFE_MODEL` for optional preference scoring of already checked candidates. It may break numeric comparison ties; it cannot change eligibility, clinical rules, or nutrient facts. Without usable model responses, manual label entry and deterministic ranking remain available. This replaced an earlier Gemini adapter; there are no remaining `GEMINI_*` settings.
+Fireworks is configured through `FIREWORKS_API_KEY` and `FIREWORKS_MODEL`; photo extraction requires a compatible vision model and structured output. Extracted observations require review, and code performs unit conversion. Jev/TypeSafe uses `TYPESAFE_API_KEY` and `TYPESAFE_MODEL` for optional preference scoring of already checked candidates. It may break numeric comparison ties; it cannot change eligibility, clinical rules, or nutrient facts. TheVerifico uses `THEVERIFICO_API_KEY` for FSSAI license lookups. Without a configured key, that endpoint returns a provider-unavailable response. Without usable model responses, manual label entry and deterministic ranking remain available. This replaced an earlier Gemini adapter; there are no remaining `GEMINI_*` settings.
 
 Data sent to third parties is deliberately narrow:
 
@@ -222,6 +223,7 @@ Data sent to third parties is deliberately narrow:
 - **Jev/TypeSafe** receives the user's free-text preference plus, for the candidates being
   scored, the product name, category, and ingredient text. It never receives identity,
   conditions, allergies, limits, or assessment IDs.
+- **TheVerifico** receives only the FSSAI license number submitted for verification.
 
 Both production adapters passed a bounded synthetic live contract check on 2026-09-26. See `scripts/provider-live-verification.md` for evidence and the opt-in repeat command. This checks connectivity and output shape, not accuracy on real food packaging. Normal photo extraction uses `LABEL_MAX_TOKENS=2048` by default; the synthetic verifier uses a smaller cap. `.dockerignore` keeps credentials, the host virtual environment, and downloaded raw data out of the Docker build context.
 

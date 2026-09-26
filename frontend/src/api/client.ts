@@ -110,6 +110,21 @@ export type DishAssessment = {
 };
 export type ReferenceFood = { code: string; name: string; data: Record<string, unknown>; source: string };
 export type ReferenceFoodsResult = { foods: ReferenceFood[]; usage: string };
+export type FssaiVerification = {
+  success: boolean;
+  verification_type: string;
+  verification_data?: {
+    fssai_number?: string;
+    company_name?: string;
+    license_category_name?: string;
+    status_desc?: string;
+    license_active_flag?: boolean;
+    address?: string;
+    [key: string]: unknown;
+  };
+  credits_used?: number;
+  processing_time_ms?: number;
+};
 
 /** A type-ahead waits for this many characters and this long a pause before asking the server. */
 export const TYPE_AHEAD_MIN_CHARS = 2;
@@ -410,6 +425,7 @@ export const api = {
   search: (token: string, query: string, live = true) => request<CatalogResponse>('/api/products/search?q=' + encodeURIComponent(query) + `&include_live=${live}`, token),
   recipes: (token: string, query: string) => request<RecipePage>('/api/recipes?q=' + encodeURIComponent(query), token),
   barcode: (token: string, code: string) => request<{ id: string; food: FoodObservation; updated_at: string; lookup_source: string }>(`/api/products/barcode/${encodeURIComponent(code)}`, token),
+  verifyFssai: (token: string, fssaiNumber: string) => request<FssaiVerification>('/api/verification/fssai', token, { method: 'POST', body: JSON.stringify({ fssai_number: fssaiNumber }) }),
   provenance: (token: string, id: string) => request<ProductProvenance>(`/api/products/${encodeURIComponent(id)}/provenance`, token),
   referenceFoods: (token: string, q: string, limit?: number) => request<ReferenceFoodsResult>(`/api/reference-foods?q=${encodeURIComponent(q)}${limit == null ? '' : `&limit=${limit}`}`, token),
   extractLabel: async (token: string, photo: Photo) => {

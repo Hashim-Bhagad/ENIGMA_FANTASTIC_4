@@ -12,12 +12,13 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.api import accounts, assessments, labels, products, recipes
+from app.api import accounts, assessments, labels, products, recipes, verification
 from app.config import Settings, get_settings
 from app.db import get_session
 from app.errors import register_error_handlers
 from app.integrations.models import ModelAssist
 from app.integrations.off import OpenFoodFacts
+from app.integrations.theverifico import FssaiVerifier
 from app.rate_limit import install_error_handler
 from app.rate_limit import reset as reset_rate_limits
 
@@ -130,6 +131,12 @@ def create_app(settings: Settings | None = None):
         ) as client:
             app.state.off = OpenFoodFacts(client, settings.off_user_agent)
             app.state.models = ModelAssist(client, settings)
+            verifico_key = (
+                settings.theverifico_api_key.get_secret_value()
+                if settings.theverifico_api_key
+                else None
+            )
+            app.state.fssai = FssaiVerifier(client, verifico_key)
             yield
 
     app = FastAPI(
@@ -150,7 +157,14 @@ def create_app(settings: Settings | None = None):
     register_error_handlers(app)
     install_error_handler(app)
 
-    routers = [accounts.router, products.router, assessments.router, labels.router, recipes.router]
+    routers = [
+        accounts.router,
+        assessments.router,
+        labels.router,
+        products.router,
+        recipes.router,
+        verification.router,
+    ]
     for module_name in ("dishes", "reports", "intake", "conditions"):
         if importlib.util.find_spec(f"app.api.{module_name}") is not None:
             module = importlib.import_module(f"app.api.{module_name}")
