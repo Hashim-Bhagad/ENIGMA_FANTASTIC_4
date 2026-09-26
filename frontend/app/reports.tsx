@@ -6,7 +6,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Button, Card, PageHeader, Pill, Screen, SectionTitle } from '@/src/components/ui';
 import { api, formatReferenceRange, HealthReportResult, LabParameter, parameterStatusTone, ReportConfirm, ReportFile, ReferenceSource, HealthReportSummary } from '@/src/api/client';
 import { useApp } from '@/src/state/AppContext';
-import { colors, radius } from '@/src/theme';
+import { colors, radius, typography } from '@/src/theme';
 
 type EditableParameter = {
   key: string; label: string; unit: string; reference_low: number | null; reference_high: number | null;
@@ -108,7 +108,7 @@ export default function ReportsScreen() {
     try {
       const updated = await api.confirmReport(token, review.id, { parameters, collected_on: collectedOn.trim() || null, note: note.trim() });
       setReview(updated); setRows(toEditableParameters(updated.parameters));
-      setMessage('Confirmed. These values now drive your intake plan — use “See what these results mean” below.');
+      setMessage('Confirmed. These values now drive your intake plan. Use “See what these results mean” below.');
       await loadReports();
     } catch (cause) { setFormError(cause instanceof Error ? cause.message : 'The confirmed values could not be saved.'); }
     finally { setConfirming(false); }
@@ -128,7 +128,7 @@ export default function ReportsScreen() {
   const confirmed = review?.status === 'confirmed';
 
   return <Screen>
-    <PageHeader eyebrow="Your health data" title="Lab reports" subtitle="Upload a blood test or panel, check what was read, then confirm the values you want to keep." back />
+    <PageHeader title="Lab reports" subtitle="Upload a blood test or panel, check what was read, then confirm the values you want to keep." back />
     <Card style={st.upload}>
       <View style={st.uploadHead}><View style={st.uploadIcon}><MaterialCommunityIcons name="file-document-outline" size={22} color={colors.primary} /></View><View style={{ flex: 1 }}><Text style={st.cardTitle}>Add a report</Text><Text style={st.cardSub}>Photos of a printed report (JPEG or PNG){Platform.OS === 'web' ? ', or a PDF file' : ''}.</Text></View></View>
       {Platform.OS === 'web'
@@ -180,12 +180,35 @@ export default function ReportsScreen() {
 }
 
 const st = StyleSheet.create({
-  upload: { gap: 13 }, uploadHead: { flexDirection: 'row', alignItems: 'center', gap: 12 }, uploadIcon: { width: 47, height: 47, borderRadius: radius.input, backgroundColor: colors.lavender, alignItems: 'center', justifyContent: 'center' },
-  actions: { gap: 9 }, progress: { flexDirection: 'row', alignItems: 'center', gap: 9 }, cardTitle: { color: colors.ink, fontSize: 15, lineHeight: 21, fontWeight: '700', marginTop: 6 }, cardSub: { color: colors.muted, fontSize: 11, lineHeight: 16, marginTop: 4 },
-  message: { color: colors.primary, fontSize: 11, lineHeight: 16, fontWeight: '700' }, note: { color: colors.subtle, fontSize: 10, lineHeight: 14 },
-  review: { gap: 13 }, reviewHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 }, warning: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: colors.amberBg, borderRadius: radius.chip, padding: 10 }, warningText: { flex: 1, color: colors.amberInk, fontSize: 11, lineHeight: 15 },
-  rows: { gap: 9 }, paramRow: { flexDirection: 'row', alignItems: 'center', gap: 9, borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 9 }, paramLabel: { color: colors.ink, fontSize: 12, fontWeight: '800' }, paramMeta: { color: colors.muted, fontSize: 10, lineHeight: 14, marginTop: 3 }, paramInput: { width: 78, minHeight: 42, borderWidth: 1, borderColor: colors.line, borderRadius: radius.chip, paddingHorizontal: 10, color: colors.ink, fontSize: 12, backgroundColor: colors.canvas },
-  fields: { gap: 7 }, fieldLabel: { color: colors.muted, letterSpacing: 1, fontSize: 9, fontWeight: '800' }, input: { minHeight: 44, borderRadius: radius.input, borderWidth: 1, borderColor: colors.line, paddingHorizontal: 12, color: colors.ink, fontSize: 12, backgroundColor: colors.surface },
-  empty: { alignItems: 'center', gap: 7 }, warningCard: { gap: 9, backgroundColor: colors.redBg }, savedRow: { flexDirection: 'row', alignItems: 'center', gap: 11 }, savedActions: { alignItems: 'flex-end', gap: 7 }, confirmDelete: { flexDirection: 'row', alignItems: 'center', gap: 11 }, link: { color: colors.primary, fontSize: 11, fontWeight: '700' }, delete: { color: colors.muted, fontSize: 11, fontWeight: '700' }, deleteConfirm: { color: colors.red, fontSize: 11, fontWeight: '800' },
-  error: { color: colors.red, fontSize: 12, lineHeight: 17 }, disclaimer: { textAlign: 'center', color: colors.subtle, fontSize: 10, lineHeight: 15, paddingHorizontal: 15 },
+  upload: { gap: 14 },
+  uploadHead: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  uploadIcon: { width: 47, height: 47, borderRadius: radius.tile, backgroundColor: colors.lavender, alignItems: 'center', justifyContent: 'center' },
+  actions: { gap: 9 },
+  progress: { flexDirection: 'row', alignItems: 'center', gap: 9 },
+  cardTitle: { ...typography.cardTitle, color: colors.ink, marginTop: 6 },
+  cardSub: { ...typography.meta, color: colors.muted, marginTop: 4 },
+  message: { color: colors.primary, ...typography.meta, fontWeight: '700' },
+  note: { ...typography.caption, color: colors.subtle },
+  review: { gap: 14 },
+  reviewHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  warning: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: colors.amberBg, borderRadius: radius.chip, padding: 12 },
+  warningText: { flex: 1, color: colors.amberInk, ...typography.meta },
+  rows: { gap: 10 },
+  paramRow: { flexDirection: 'row', alignItems: 'center', gap: 9, borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 10 },
+  paramLabel: { color: colors.ink, fontSize: 14, lineHeight: 20, fontWeight: '800' },
+  paramMeta: { ...typography.caption, color: colors.muted, marginTop: 3 },
+  paramInput: { width: 84, minHeight: 46, borderWidth: 1, borderColor: colors.stroke, borderRadius: radius.control, paddingHorizontal: 10, color: colors.ink, fontSize: 16, backgroundColor: colors.surface },
+  fields: { gap: 7 },
+  fieldLabel: { ...typography.label, color: colors.muted },
+  input: { minHeight: 48, borderRadius: radius.control, borderWidth: 1, borderColor: colors.stroke, paddingHorizontal: 14, color: colors.ink, fontSize: 16, backgroundColor: colors.surface },
+  empty: { alignItems: 'center', gap: 7 },
+  warningCard: { gap: 9, backgroundColor: colors.redBg },
+  savedRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  savedActions: { alignItems: 'flex-end', gap: 7 },
+  confirmDelete: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  link: { color: colors.primary, ...typography.meta, fontWeight: '700' },
+  delete: { color: colors.muted, ...typography.meta, fontWeight: '700' },
+  deleteConfirm: { color: colors.red, ...typography.meta, fontWeight: '800' },
+  error: { ...typography.meta, color: colors.red },
+  disclaimer: { textAlign: 'center', ...typography.caption, color: colors.subtle, paddingHorizontal: 15 },
 });

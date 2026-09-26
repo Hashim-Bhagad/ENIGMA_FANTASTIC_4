@@ -3,10 +3,10 @@ import { Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-nat
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Button, Card, Field, PageHeader, Pill, Screen, SectionTitle } from '@/src/components/ui';
 import { FindingsList, findingCount, statusTone } from '@/src/components/findings';
-import { api, attachReferenceToRows, dishStatusExplanation, estimateCoverageLine, ingredientRowKeyFor, PARTIAL_ESTIMATE_FLOOR_NOTE, REFERENCE_MATCH_NOTE, referenceSuggestionLabel, TYPE_AHEAD_DELAY_MS, typeAheadTerm, type DishOptions, type IngredientAlternatives, type Recipe, type ReferenceFood } from '@/src/api/client';
+import { api, attachReferenceToRows, dishStatusExplanation, estimateCoverageLine, ingredientRowKeyFor, PARTIAL_ESTIMATE_FLOOR_NOTE, REFERENCE_MATCH_NOTE, referenceSuggestionLabel, TYPE_AHEAD_DELAY_MS, typeAheadTerm, type DishOptions, type IngredientAlternatives, type Recipe, type ReferenceFood, DISH_DRAFT_ACTION, DISH_DRAFT_BANNER, draftIngredientRows, type DishDraftResponse } from '@/src/api/client';
 import { useApp, type DishDraft, type DishIngredientDraft } from '@/src/state/AppContext';
 import { nutrientFields } from '@/src/data/nutrients';
-import { colors, radius } from '@/src/theme';
+import { colors, radius, typography } from '@/src/theme';
 
 /** Suggestions shown under one field; the backend already ranked them most-relevant first. */
 const SUGGESTION_LIMIT = 6;
@@ -130,7 +130,7 @@ function UnmatchedRow({ input, reason, token, busy, onAttach }: {
       <MaterialCommunityIcons name="link-variant" size={16} color={colors.primary} />
       <Text style={st.suggestionText}>{referenceSuggestionLabel(food)}</Text>
     </Pressable>)}</View> : null}
-    {!loading && !failed && !candidates.length ? <Text style={st.note}>{REFERENCE_MATCH_NOTE} No IFCT reference matches this wording — try a simpler ingredient name, then run the check again.</Text> : null}
+    {!loading && !failed && !candidates.length ? <Text style={st.note}>{REFERENCE_MATCH_NOTE} No IFCT reference matches this wording: try a simpler ingredient name, then run the check again.</Text> : null}
   </View>;
 }
 
@@ -151,6 +151,9 @@ export default function DishScreen() {
   const [recipe, setRecipe] = useState<Recipe | null>(null);
   const [recipeNote, setRecipeNote] = useState('');
   const [recipeBusy, setRecipeBusy] = useState(false);
+  /** The model draft on screen and the rows it owns, so a second draft replaces its own lines. */
+  const [draft, setDraft] = useState<{ response: DishDraftResponse; keys: string[] } | null>(null);
+  const [draftBusy, setDraftBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [options, setOptions] = useState<DishOptions | null>(null);
   const [optionsError, setOptionsError] = useState('');
@@ -193,6 +196,40 @@ export default function DishScreen() {
   }, [token]);
   useEffect(() => { void searchRecipes(debouncedQuery); }, [debouncedQuery, searchRecipes]);
 
+  /** The dish name a draft is asked for: what is typed in the search box, else the meal name. */
+  const draftTerm = query.trim() || dishDraft.name.trim();
+
+  /**
+   * Ask the model for a starting ingredient list and put it in the editable rows. Rows a previous
+   * draft put there are replaced; wording the user typed themselves is kept, so a weight or a
+   * chosen reference is never thrown away on the way in. The meal name and the returned preparation
+   * notes are filled in and the confirmation is withdrawn. No check runs: the user corrects the
+   * lines and presses the check button themselves.
+   */
+  const requestDraft = async () => {
+    if (!token || !draftTerm) return;
+    setDraftBusy(true); clearError(); setMessage('');
+    try {
+      const response = await api.draftDish(token, draftTerm);
+      const rows = draftIngredientRows(response, `draft-${Date.now()}-${nextRow++}`);
+      const draftedKeys = new Set(draft?.keys || []);
+      const mine = dishDraft.ingredients.filter(row => row.text.trim() && !draftedKeys.has(row.key));
+      const mineText = new Set(mine.map(row => row.text.trim().toLowerCase()));
+      const availableNotes = (options?.cooking_notes || []).map(note => note.code);
+      setDraft({ response, keys: rows.map(row => row.key) });
+      setDishDraft({
+        ...dishDraft,
+        name: response.name || dishDraft.name,
+        // A line the user already wrote wins over the draft's wording for the same ingredient.
+        ingredients: [...rows.filter(row => !mineText.has(row.text.trim().toLowerCase())), ...mine].slice(0, 40),
+        cookingNotes: response.cooking_notes.filter(code => availableNotes.includes(code)),
+        declarationsConfirmed: false,
+      });
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : 'Could not draft a starting list for this dish.');
+    } finally { setDraftBusy(false); }
+  };
+
   const updateRow = (key: string, changes: Partial<DishIngredientDraft>) => {
     // Editing the wording changes the list, so the earlier confirmation no longer covers it.
     // Choosing a reference or recording a weight leaves the confirmed list intact.
@@ -205,6 +242,8 @@ export default function DishScreen() {
   };
   const selectRecipe = (item: Recipe) => {
     setRecipe(item);
+    // A reviewed template replaces the rows, so a draft label no longer describes them either way.
+    setDraft(null);
     setDishDraft({ ...dishDraft, name: item.name, ingredients: item.ingredients.map(ingredient => ({ ...ingredientRow(ingredient.text), referenceCode: ingredient.reference_code || null, grams: ingredient.grams == null ? '' : String(ingredient.grams) })), declarationsConfirmed: false });
   };
   /** Run the check on one concrete draft so the result always describes the list on screen. */
@@ -238,7 +277,7 @@ export default function DishScreen() {
   const nothingMatched = Boolean(dishResult && !dishResult.dish.matches.length);
 
   return <Screen>
-    <PageHeader eyebrow="Meal check" title="What goes into your meal?" subtitle="Start from a recipe or enter ingredients. Make the check reflect the food you plan to eat." back />
+    <PageHeader title="What goes into your meal?" subtitle="Start from a recipe or enter ingredients. Make the check reflect the food you plan to eat." back />
     <View style={st.modes}>{(['home', 'restaurant'] as const).map(value => <Pressable key={value} accessibilityRole="button" accessibilityState={{ selected: mode === value }} onPress={() => chooseMode(value)} style={[st.mode, mode === value && st.modeActive]}><MaterialCommunityIcons name={value === 'home' ? 'home-outline' : 'silverware-fork-knife'} size={20} color={mode === value ? colors.primary : colors.muted} /><Text style={[st.modeText, mode === value && { color: colors.primary }]}>{value === 'home' ? 'Cooking at home' : 'Eating out'}</Text></Pressable>)}</View>
     <Card style={st.intro}><Text style={st.title}>{mode === 'home' ? 'Check your recipe before cooking' : 'Prepare questions for the kitchen'}</Text><Text style={st.copy}>{mode === 'home' ? 'Adjust the ingredient list, including sauces, oil, salt, toppings and additions. Matches show what conflicts with your saved restrictions.' : 'A recipe describes one version of a dish. Ask the cook to confirm ingredients and request changes before treating it as your actual meal.'}</Text><Text style={st.meta}>How this check works: {HOW_THIS_WORKS}</Text></Card>
 
@@ -248,8 +287,9 @@ export default function DishScreen() {
     {recipeBusy ? <Text style={st.meta}>Searching recipe templates…</Text> : null}
     {recipes.length
       ? recipes.map(item => <Pressable key={item.id} accessibilityRole="button" accessibilityLabel={`Use recipe ${item.name}`} onPress={() => selectRecipe(item)}><Card style={st.recipeRow}><View style={{ flex: 1, gap: 6 }}><Text style={st.title}>{item.name}</Text><Text style={st.copy}>{item.ingredients.length} ingredients · recipe reference</Text></View><MaterialCommunityIcons name="plus-circle-outline" size={24} color={colors.primary} /></Card></Pressable>)
-      : !recipeBusy ? <Card style={st.empty}><MaterialCommunityIcons name="book-search-outline" size={26} color={colors.subtle} /><Text style={st.title}>{recipeNote || 'No recipe templates match this search.'}</Text><Text style={st.copy}>You can check your own ingredient list below. IFCT provides ingredient references; it does not contain complete recipes.</Text></Card> : null}
+      : !recipeBusy ? <Card style={st.empty}><MaterialCommunityIcons name="book-search-outline" size={26} color={colors.subtle} /><Text style={st.title}>{recipeNote || 'No recipe templates match this search.'}</Text><Text style={st.copy}>You can check your own ingredient list below. IFCT provides ingredient references; it does not contain complete recipes.</Text><Button title={DISH_DRAFT_ACTION} icon="auto-fix" secondary disabled={!draftTerm} loading={draftBusy} onPress={() => void requestDraft()} /><Text style={st.meta}>{draftTerm ? `A model can draft a starting ingredient list for “${draftTerm}”. It is a suggestion written from the name, not a recipe and not a reviewed record; every line needs correcting before the check.` : 'Type a dish name above to have a model draft a starting ingredient list.'}</Text></Card> : null}
     {recipes.length && recipeNote ? <Text style={st.meta}>{recipeNote}</Text> : null}
+    {draft ? <Card style={st.draftCard}><Pill label="Model draft" tone="amber" /><Text style={st.title}>{DISH_DRAFT_BANNER}</Text><Text style={st.copy}>{draft.response.message}</Text>{draft.response.warnings.map((warning, index) => <Text key={index} style={st.meta}>{warning}</Text>)}</Card> : null}
     {recipe ? <Card style={{ gap: 8 }}><Pill label="Recipe template selected" tone="blue" /><Text style={st.title}>{recipe.name}</Text>{recipe.warnings.map((warning, index) => <Text key={index} style={st.copy}>{warning}</Text>)}{typeof recipe.source.reference === 'string' && /^https?:\/\//.test(recipe.source.reference) ? <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(String(recipe.source.reference))} style={st.iconButton}><Text style={st.link}>Open recipe source ↗</Text></Pressable> : null}</Card> : null}
 
     <SectionTitle title="Your actual ingredients" action={`${dishDraft.ingredients.length}/40`} />
@@ -280,7 +320,7 @@ export default function DishScreen() {
 
     {dishResult ? <>
       <SectionTitle title="Meal check result" action={`${findingCount(dishResult.assessment)} items`} />
-      {resultOutOfDate ? <Card style={st.notice}><MaterialCommunityIcons name="alert-outline" size={17} color={colors.amber} /><Text style={st.noticeText}>This meal changed after the check ran. The result below describes the earlier list — press the check button again to update it.</Text></Card> : null}
+      {resultOutOfDate ? <Card style={st.notice}><MaterialCommunityIcons name="alert-outline" size={17} color={colors.amber} /><Text style={st.noticeText}>This meal changed after the check ran. The result below describes the earlier list. Press the check button again to update it.</Text></Card> : null}
       <Card style={{ gap: 10 }}>
         <View style={st.row}><Text style={[st.title, { flex: 1 }]}>{dishResult.dish.name}</Text><Pill label={dishResult.assessment.status.replaceAll('_', ' ').toUpperCase()} tone={statusTone(dishResult.assessment.status)} /></View>
         <Text style={st.copy}>{dishStatusExplanation(dishResult.assessment.status)}</Text>
@@ -309,7 +349,7 @@ export default function DishScreen() {
             ? <>
               {dishResult.dish.estimate.coverage_note ? <Text style={st.meta}>{dishResult.dish.estimate.coverage_note}</Text> : null}
               {dishResult.dish.estimate.excluded.length ? <Text style={st.meta}>Left out of this estimate:</Text> : null}
-              {dishResult.dish.estimate.excluded.map(item => <Text key={`excluded-${item.input_text}`} selectable style={st.meta}>· {item.input_text} — {item.reason}</Text>)}
+              {dishResult.dish.estimate.excluded.map(item => <Text key={`excluded-${item.input_text}`} selectable style={st.meta}>· {item.input_text}: {item.reason}</Text>)}
               <Text style={st.floor}>{PARTIAL_ESTIMATE_FLOOR_NOTE}</Text>
               <Text style={st.meta}>Estimated per 100 g of this meal{dishResult.dish.estimate.matched_grams == null ? '' : `, from the ${dishResult.dish.estimate.matched_grams} g counted`}:</Text>
               {nutrientFields.filter(field => dishResult.dish.estimate.nutrients[field.key] != null).map(field => <Text key={field.key} style={st.meta}>{field.label}: {dishResult.dish.estimate.nutrients[field.key]} {field.unit}</Text>)}
@@ -318,26 +358,39 @@ export default function DishScreen() {
           {dishResult.dish.estimate.assumptions.map((assumption, index) => <Text key={`assumption-${index}`} style={st.meta}>· {assumption}</Text>)}
         </View>
       </Card>
-      {nothingMatched ? <Card style={st.notice}><MaterialCommunityIcons name="help-circle-outline" size={17} color={colors.amber} /><Text style={st.noticeText}>None of the typed ingredients matched a reference, so no nutrient estimate is possible yet. Attach one of the suggested references above — or reword the ingredient to a simpler name — then add the amounts and run the check again.</Text></Card> : null}
+      {nothingMatched ? <Card style={st.notice}><MaterialCommunityIcons name="help-circle-outline" size={17} color={colors.amber} /><Text style={st.noticeText}>None of the typed ingredients matched a reference, so no nutrient estimate is possible yet. Attach one of the suggested references above, or reword the ingredient to a simpler name, then add the amounts and run the check again.</Text></Card> : null}
       <FindingsList result={dishResult.assessment} />
       {ambiguousFinding ? <Card style={{ gap: 8, backgroundColor: colors.lavenderSoft }}><Text style={st.title}>Possible ingredient swaps</Text>{ingredientAlternatives?.alternatives.length ? ingredientAlternatives.alternatives.map((item, index) => <Text key={`${item.matched_ingredient}-${index}`} style={st.copy}>{item.matched_ingredient}: {item.alternatives.join(' or ')}. {item.reason}</Text>) : <Text style={st.copy}>{ingredientAlternatives ? 'No reviewed swap matches this ambiguous ingredient in the current catalog.' : 'Checking the ingredient swap catalog…'}</Text>}{ingredientAlternatives ? <Text style={st.meta}>{ingredientAlternatives.note}</Text> : null}</Card> : null}
       <Button title="Run this check again" icon="refresh" secondary loading={busyFor('dish')} onPress={() => void runCheck(dishDraft)} />
-      <Button title="Clear this meal check" icon="close-circle-outline" secondary onPress={() => { clearDish(); setChecked(null); setMessage(''); }} />
+      <Button title="Clear this meal check" icon="close-circle-outline" secondary onPress={() => { clearDish(); setChecked(null); setMessage(''); setDraft(null); }} />
     </> : null}
   </Screen>;
 }
 
 const st = StyleSheet.create({
-  modes: { flexDirection: 'row', gap: 10 }, mode: { flex: 1, minHeight: 58, borderRadius: 16, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', gap: 5, borderWidth: 1, borderColor: colors.line }, modeActive: { borderColor: colors.primary, backgroundColor: colors.lavender }, modeText: { fontSize: 13, fontWeight: '700', color: colors.muted },
-  intro: { gap: 8, backgroundColor: colors.lavenderSoft }, title: { fontSize: 16, lineHeight: 23, fontWeight: '800', color: colors.ink }, copy: { fontSize: 14, lineHeight: 21, color: colors.muted }, meta: { fontSize: 12, lineHeight: 19, color: colors.muted },
-  search: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingLeft: 14, backgroundColor: colors.surface, borderRadius: 16, borderWidth: 1, borderColor: colors.line }, searchInput: { flex: 1, minHeight: 54, color: colors.ink, fontSize: 14 }, iconButton: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
-  recipeRow: { flexDirection: 'row', alignItems: 'center', gap: 12 }, row: { flexDirection: 'row', alignItems: 'center', gap: 10 }, rowCard: { gap: 12 }, number: { fontSize: 14, color: colors.primary, fontWeight: '800' }, link: { fontSize: 14, lineHeight: 20, color: colors.primaryDark, fontWeight: '700' },
-  suggestions: { gap: 6, marginTop: 8 }, suggestion: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 10, borderRadius: radius.chip, backgroundColor: colors.lavenderTint, borderWidth: 1, borderColor: colors.lavenderLine }, suggestionText: { flex: 1, color: colors.ink, fontSize: 13, lineHeight: 18, fontWeight: '700' },
-  searching: { marginTop: 7, color: colors.primary, fontSize: 12, fontWeight: '700' }, note: { marginTop: 7, color: colors.subtle, fontSize: 11, lineHeight: 16 }, noteRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 7, flexWrap: 'wrap' }, selected: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  empty: { alignItems: 'center', gap: 8, paddingVertical: 22 }, block: { gap: 4, borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 8 }, blockTitle: { color: colors.muted, letterSpacing: 1, fontSize: 9, fontWeight: '800' },
-  unmatched: { gap: 4 }, amounts: { gap: 8, marginTop: 8, backgroundColor: colors.canvas, borderRadius: radius.chip, padding: 12 }, amountRow: { flexDirection: 'row', alignItems: 'center', gap: 10 }, amountLabel: { flex: 1, color: colors.ink, fontSize: 13, fontWeight: '700' }, amountInput: { width: 84, minHeight: 44, borderWidth: 1, borderColor: colors.line, borderRadius: radius.chip, paddingHorizontal: 12, color: colors.ink, fontSize: 13, backgroundColor: colors.surface }, floor: { color: colors.amberInk, fontSize: 12, lineHeight: 17, fontWeight: '700', marginTop: 6 },
-  notice: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: colors.amberBg }, noticeText: { flex: 1, color: colors.amberInk, fontSize: 12, lineHeight: 17, fontWeight: '700' },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, chip: { paddingHorizontal: 12, paddingVertical: 12, borderRadius: 14, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line }, chipActive: { backgroundColor: colors.lavender, borderColor: colors.primary },
-  confirm: { gap: 10, borderWidth: 2, borderColor: colors.line }, confirmOn: { borderColor: colors.primary, backgroundColor: colors.lavenderSoft }, confirmRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 11 }, confirmTitle: { color: colors.ink, fontSize: 16, lineHeight: 22, fontWeight: '800', marginBottom: 4 }, confirmState: { color: colors.primaryDark, fontSize: 12, lineHeight: 17, fontWeight: '700' },
-  error: { fontSize: 14, lineHeight: 21, color: colors.red },
+  modes: { flexDirection: 'row', gap: 10 },
+  mode: { flex: 1, minHeight: 58, borderRadius: radius.control, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', gap: 5, borderWidth: 1, borderColor: colors.stroke },
+  modeActive: { borderColor: colors.primary, backgroundColor: colors.lavender }, modeText: { fontSize: 14, fontWeight: '700', color: colors.muted },
+  intro: { gap: 8, backgroundColor: colors.lavenderSoft }, title: { ...typography.cardTitle, fontWeight: '800', color: colors.ink },
+  copy: { ...typography.body, color: colors.muted }, meta: { ...typography.meta, color: colors.muted },
+  search: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingLeft: 14, backgroundColor: colors.surface, borderRadius: radius.control, borderWidth: 1, borderColor: colors.stroke },
+  searchInput: { flex: 1, minHeight: 56, color: colors.ink, fontSize: 16 }, iconButton: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+  recipeRow: { flexDirection: 'row', alignItems: 'center', gap: 12 }, row: { flexDirection: 'row', alignItems: 'center', gap: 10 }, rowCard: { gap: 12 },
+  number: { fontSize: 14, color: colors.primary, fontWeight: '800' }, link: { ...typography.bodyStrong, color: colors.primaryDark },
+  suggestions: { gap: 6, marginTop: 8 },
+  suggestion: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 11, borderRadius: radius.chip, backgroundColor: colors.lavenderTint, borderWidth: 1, borderColor: colors.lavenderLine },
+  suggestionText: { flex: 1, color: colors.ink, fontSize: 14, lineHeight: 20, fontWeight: '700' },
+  searching: { marginTop: 7, color: colors.primary, ...typography.meta, fontWeight: '700' },
+  note: { marginTop: 7, ...typography.caption, color: colors.subtle }, noteRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 7, flexWrap: 'wrap' },
+  selected: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  empty: { alignItems: 'center', gap: 8, paddingVertical: 22 }, draftCard: { gap: 8, borderWidth: 2, borderColor: colors.amber },
+  block: { gap: 4, borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 10 }, blockTitle: { ...typography.label, color: colors.muted },
+  unmatched: { gap: 4 }, amounts: { gap: 8, marginTop: 8, backgroundColor: colors.canvas, borderRadius: radius.chip, padding: 12 },
+  amountRow: { flexDirection: 'row', alignItems: 'center', gap: 10 }, amountLabel: { flex: 1, color: colors.ink, fontSize: 14, fontWeight: '700' },
+  amountInput: { width: 88, minHeight: 46, borderWidth: 1, borderColor: colors.stroke, borderRadius: radius.control, paddingHorizontal: 12, color: colors.ink, fontSize: 16, backgroundColor: colors.surface },
+  floor: { color: colors.amberInk, ...typography.meta, fontWeight: '700', marginTop: 6 },
+  notice: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: colors.amberBg }, noticeText: { flex: 1, color: colors.amberInk, ...typography.meta, fontWeight: '700' },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, chip: { paddingHorizontal: 14, paddingVertical: 12, borderRadius: radius.control, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.stroke }, chipActive: { backgroundColor: colors.lavender, borderColor: colors.primary },
+  confirm: { gap: 10, borderWidth: 2, borderColor: colors.line }, confirmOn: { borderColor: colors.primary, backgroundColor: colors.lavenderSoft }, confirmRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 11 }, confirmTitle: { color: colors.ink, fontSize: 16, lineHeight: 22, fontWeight: '800', marginBottom: 4 }, confirmState: { color: colors.primaryDark, ...typography.meta, fontWeight: '700' },
+  error: { ...typography.body, color: colors.red },
 });

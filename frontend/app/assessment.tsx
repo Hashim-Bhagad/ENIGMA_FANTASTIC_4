@@ -5,7 +5,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Button, Card, PageHeader, Pill, Screen, SectionTitle } from '@/src/components/ui';
 import { FindingsList, findingCount, statusTone } from '@/src/components/findings';
 import { useApp } from '@/src/state/AppContext';
-import { colors } from '@/src/theme';
+import { colors, typography } from '@/src/theme';
 import { FoodFacts } from '@/src/components/food-facts';
 import { api, type IngredientAlternatives } from '@/src/api/client';
 
@@ -63,7 +63,7 @@ export default function AssessmentScreen() {
     <FindingsList result={result} />
     {ambiguity ? <Card style={{ gap: 8, backgroundColor: colors.lavenderSoft }}><Text style={st.findingTitle}>Possible ingredient swaps</Text>{alternatives?.alternatives.length ? alternatives.alternatives.map((item, index) => <Text key={`${item.matched_ingredient}-${index}`} style={st.coverage}>{item.matched_ingredient}: {item.alternatives.join(' or ')}. {item.reason}</Text>) : <Text style={st.coverage}>{alternatives ? 'No reviewed swap matches this ambiguous ingredient in the current catalog.' : alternativeError || 'Checking the ingredient swap catalog…'}</Text>}{alternatives ? <Text style={st.warningText}>{alternatives.note}</Text> : null}</Card> : null}
     {result.source_warnings.map((warning, index) => <Card key={`warning-${index}`} style={st.warning}><MaterialCommunityIcons name="information-outline" size={17} color={colors.amber} /><Text style={st.warningText}>{warning}</Text></Card>)}
-    {result.ingredient_findings?.length ? <Card style={{ gap: 10 }}><Text style={st.findingTitle}>Recognized ingredient names</Text>{result.ingredient_findings.map((item, index) => <Text selectable key={index} style={st.coverage}>“{item.raw_evidence}” — recognized as {ingredientTermLabel(item)}</Text>)}<Text style={st.coverage}>A recognized name is a wording match only: it does not give an amount, and it does not prove what the manufacturer used.</Text></Card> : null}
+    {result.ingredient_findings?.length ? <Card style={{ gap: 10 }}><Text style={st.findingTitle}>Recognized ingredient names</Text>{result.ingredient_findings.map((item, index) => <Text selectable key={index} style={st.coverage}>“{item.raw_evidence}” recognized as {ingredientTermLabel(item)}</Text>)}<Text style={st.coverage}>A recognized name is a wording match only: it does not give an amount, and it does not prove what the manufacturer used.</Text></Card> : null}
     {result.ingredient_findings?.length ? <Card style={st.scope}><MaterialCommunityIcons name="format-list-bulleted" size={18} color={colors.blue} /><Text style={st.coverage}>Names are matched against a fixed ingredient vocabulary (version {result.ingredient_taxonomy_version ?? 'unknown'}). A match is wording, not an amount, and not proof of hidden ingredients.</Text></Card> : null}
     <Card style={st.scope}><MaterialCommunityIcons name="book-open-variant" size={18} color={colors.primary} /><View style={{ flex: 1 }}><Text style={st.findingTitle}>Assessment saved</Text><Text style={st.coverage}>This record stores the food observations and profile version used. Update your profile and reassess to apply changed restrictions.</Text></View></Card>
     <SectionTitle title="Next step" />
@@ -72,4 +72,17 @@ export default function AssessmentScreen() {
     <Button title="Check another product" icon="barcode-scan" secondary onPress={() => router.push('/(tabs)/scan')} />
   </Screen>;
 }
-const st = StyleSheet.create({ summary: { gap: 12 }, summaryRow: { gap: 12, alignItems: 'flex-start' }, brand: { color: colors.muted, fontSize: 13, lineHeight: 19 }, productName: { color: colors.ink, fontSize: 23, lineHeight: 30, fontWeight: '800', marginVertical: 4 }, divider: { height: 1, backgroundColor: colors.line }, statusReason: { color: colors.ink, fontSize: 16, lineHeight: 24, fontWeight: '700' }, coverage: { color: colors.muted, fontSize: 14, lineHeight: 21 }, checked: { color: colors.primaryDark, fontSize: 13, fontWeight: '700' }, findingTitle: { flex: 1, color: colors.ink, fontSize: 15, lineHeight: 22, fontWeight: '800' }, warning: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: colors.amberBg }, warningText: { flex: 1, color: colors.amberInk, fontSize: 14, lineHeight: 21 }, scope: { flexDirection: 'row', gap: 10, alignItems: 'flex-start', backgroundColor: colors.lavenderSoft } });
+const st = StyleSheet.create({
+  summary: { gap: 12 },
+  summaryRow: { gap: 12, alignItems: 'flex-start' },
+  brand: { ...typography.meta, color: colors.muted },
+  productName: { color: colors.ink, fontSize: 22, lineHeight: 28, fontWeight: '800', marginVertical: 4 },
+  divider: { height: 1, backgroundColor: colors.line },
+  statusReason: { color: colors.ink, fontSize: 17, lineHeight: 24, fontWeight: '700' },
+  coverage: { ...typography.body, color: colors.muted },
+  checked: { color: colors.primaryDark, ...typography.meta, fontWeight: '700' },
+  findingTitle: { flex: 1, color: colors.ink, ...typography.cardTitle, fontWeight: '800' },
+  warning: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: colors.amberBg },
+  warningText: { flex: 1, color: colors.amberInk, ...typography.body },
+  scope: { flexDirection: 'row', gap: 10, alignItems: 'flex-start', backgroundColor: colors.lavenderSoft },
+});

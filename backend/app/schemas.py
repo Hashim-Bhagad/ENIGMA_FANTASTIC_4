@@ -470,3 +470,38 @@ class IntakePlan(ResponseModel):
 class IntakePlanRequest(StrictModel):
     profile_id: UUID
     profile_version: int = Field(ge=1)
+
+
+# --- Model-drafted starting lists for a dish name (never a reviewed recipe) ---------------
+
+
+class DishDraftRequest(StrictModel):
+    """One dish name the user wants a starting ingredient list drafted for."""
+
+    name: str = Field(min_length=1, max_length=120)
+
+
+class DishDraftIngredient(ResponseModel):
+    """One drafted line. ``grams`` is the model's usual whole-dish amount, or null if unsure."""
+
+    text: str
+    grams: float | None = None
+
+
+class DishDraftSource(ResponseModel):
+    """Provenance that keeps a draft out of the reviewed-template list."""
+
+    kind: Literal["model_draft"]
+    model: str
+    model_version: str
+
+
+class DishDraftResponse(ResponseModel):
+    """A model's starting list for a dish: clearly labelled, editable, unchecked."""
+
+    name: str
+    ingredients: list[DishDraftIngredient]
+    cooking_notes: list[str] = Field(default_factory=list)
+    source: DishDraftSource
+    warnings: list[str] = Field(default_factory=list)
+    message: str

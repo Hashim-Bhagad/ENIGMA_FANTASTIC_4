@@ -176,6 +176,24 @@ export function attachReferenceToRows<T extends { key: string; text: string; ref
   if (key === null) return rows;
   return rows.map(row => row.key === key ? { ...row, referenceCode: code } : row);
 }
+
+/** One line a model drafted for a dish; a null amount means the model was not sure. */
+export type DishDraftIngredient = { text: string; grams: number | null };
+/** Provenance that keeps a draft out of the reviewed-template list. */
+export type DishDraftSource = { kind: 'model_draft'; model: string; model_version: string };
+/** A model's starting list for a dish name: editable, labelled, and never checked on arrival. */
+export type DishDraftResponse = { name: string; ingredients: DishDraftIngredient[]; cooking_notes: string[]; source: DishDraftSource; warnings: string[]; message: string };
+
+/** The action that asks for a draft when no reviewed template answers the search. */
+export const DISH_DRAFT_ACTION = 'Draft this dish';
+
+/** The label a drafted list always carries, wherever it appears. */
+export const DISH_DRAFT_BANNER = 'Draft list — a model wrote this from the dish name. Correct every line before you check it.';
+
+/** One editable row per drafted line: no reference is attached and an unsure amount stays blank. */
+export function draftIngredientRows(draft: DishDraftResponse, keyPrefix: string): { key: string; text: string; referenceCode: string | null; grams: string }[] {
+  return draft.ingredients.map((item, index) => ({ key: `${keyPrefix}-${index + 1}`, text: item.text, referenceCode: null, grams: item.grams == null ? '' : String(item.grams) }));
+}
 export type CatalogResponse = { products: { id: string; food: FoodObservation; updated_at: string }[]; query_type?: string; live_requested?: boolean; live_status?: string; message?: string; skipped_records?: number };
 export type Recipe = { id: string; name: string; ingredients: DishIngredient[]; source: Record<string, unknown>; review_status: string; warnings: string[] };
 export type RecipePage = { recipes: Recipe[]; message?: string; pending_count?: number };
@@ -357,6 +375,7 @@ export class ApiError extends Error {
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const LABEL_TIMEOUT_MS = 60_000;
+const DRAFT_TIMEOUT_MS = 45_000;
 const REPORT_TIMEOUT_MS = 90_000;
 export const TIMEOUT_MESSAGE = 'The server did not respond in time. Check your connection and try again.';
 
@@ -448,6 +467,8 @@ export const api = {
   ingredientAlternatives: (token: string, ingredients: string[]) => request<IngredientAlternatives>('/api/ingredient-alternatives', token, { method: 'POST', body: JSON.stringify({ ingredients }) }),
   dishesOptions: (token: string) => request<DishOptions>('/api/dishes/options', token),
   assessDish: (token: string, payload: DishPayload) => request<DishAssessment>('/api/dishes/assess', token, { method: 'POST', body: JSON.stringify(payload) }),
+  /** Ask the model for a starting ingredient list; nothing is checked until the user runs it. */
+  draftDish: (token: string, name: string) => request<DishDraftResponse>('/api/dishes/draft', token, { method: 'POST', body: JSON.stringify({ name }) }, DRAFT_TIMEOUT_MS),
   conditions: (token: string) => request<ConditionRegistry>('/api/conditions', token),
   reports: (token: string, limit = 20, offset = 0) => request<HealthReportList>(`/api/reports?limit=${limit}&offset=${offset}`, token),
   report: (token: string, id: string) => request<HealthReportResult>(`/api/reports/${encodeURIComponent(id)}`, token),

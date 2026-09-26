@@ -137,6 +137,9 @@ def create_app(settings: Settings | None = None):
                 else None
             )
             app.state.fssai = FssaiVerifier(client, verifico_key)
+            # Shared outbound client for callers that build their own provider wrapper
+            # (the live recipe search), so tests can swap in a mock transport.
+            app.state.http = client
             yield
 
     app = FastAPI(

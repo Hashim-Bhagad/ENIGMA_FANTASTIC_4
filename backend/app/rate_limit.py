@@ -42,6 +42,8 @@ _SCOPE_SETTINGS = {
     "report_extract": "rate_limit_report_extract_per_minute",
     "provider_reads": "rate_limit_provider_reads_per_minute",
     "recommendations": "rate_limit_recommendations_per_minute",
+    "dish_draft": "rate_limit_dish_draft_per_minute",
+    "recipes_live": "rate_limit_recipes_live_per_minute",
 }
 
 
@@ -127,6 +129,17 @@ def rate_limit(scope: str, limit: int, window_seconds: int, by: Literal["user", 
 
         return by_user
     raise ValueError(f"Unsupported rate-limit key: {by}")
+
+
+def enforce_user(scope: str, limit: int, window_seconds: int, user: User) -> None:
+    """Enforce ``scope`` inside a route body for one authenticated user.
+
+    Used where only some requests actually spend provider credit (a recipe search
+    that hits its local cache must not be throttled), so a plain route dependency
+    cannot be the right shape. Same bucket key and Settings lookup as
+    :func:`rate_limit`, so both spellings share one budget.
+    """
+    _enforce(scope, limit, window_seconds, f"{scope}:user:{user.id}")
 
 
 def install_error_handler(app: FastAPI) -> None:

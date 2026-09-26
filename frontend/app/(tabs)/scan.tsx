@@ -7,7 +7,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Button, Card, Field, PageHeader, Pill, Screen, SectionTitle } from '@/src/components/ui';
 import { api, type FssaiVerification, type Product } from '@/src/api/client';
 import { useApp } from '@/src/state/AppContext';
-import { colors, radius } from '@/src/theme';
+import { colors, radius, typography } from '@/src/theme';
 
 export default function ScanScreen() {
   const { product, products, setProduct, search, setSearch, setLabelPhoto, lookupBarcode, searchCatalog, extractLabel, busyFor, token, catalogMessage, loadCatalog } = useApp();
@@ -81,12 +81,12 @@ export default function ScanScreen() {
   };
 
   return <Screen>
-    <PageHeader eyebrow="Food check" title="Scan or search" subtitle="Find a packaged food, then review its label information before an assessment." />
+    <PageHeader title="Scan or search" subtitle="Find a packaged food, then review its label information before an assessment." />
     <Button title="Check a cooked meal" icon="silverware-fork-knife" secondary onPress={() => router.push('/dish')} />
     <Card style={st.scanCard}>
       <View style={st.scanGraphic}><View style={st.scanFrame}><MaterialCommunityIcons name="barcode-scan" size={33} color={colors.primary} /></View><View style={st.scanText}><Text style={st.cardTitle}>Scan a barcode</Text><Text style={st.cardSub}>Look up a product in the available catalog.</Text></View></View>
       {cameraVisible ? <View style={st.cameraShell}><CameraView style={st.camera} facing="back" barcodeScannerSettings={{ barcodeTypes: ['ean13', 'ean8', 'upc_a', 'upc_e'] }} onBarcodeScanned={onBarcode} /><View pointerEvents="none" style={st.scanOverlay}><View style={st.scanCorners} /></View><Pressable onPress={() => setCameraVisible(false)} style={st.cameraClose}><MaterialCommunityIcons name="close" color={colors.onPrimary} size={20} /></Pressable><Text style={st.cameraHint}>Line up the barcode inside the frame</Text></View> : <Pressable onPress={openCamera} style={st.cameraButton}><MaterialCommunityIcons name="camera-outline" size={17} color={colors.primary} /><Text style={st.cameraButtonText}>{Platform.OS === 'web' ? 'Use a phone to scan' : 'Open camera scanner'}</Text></Pressable>}
-      <View style={st.inputWrap}><MaterialCommunityIcons name="barcode" size={20} color={colors.subtle} /><TextInput value={barcode} onChangeText={setBarcode} keyboardType="numeric" placeholder="Enter barcode number" placeholderTextColor={colors.subtle} style={st.input} onSubmitEditing={() => void lookup()} returnKeyType="search" /><Pressable accessibilityRole="button" accessibilityLabel="Look up barcode" disabled={busy} onPress={() => void lookup()} style={st.searchAction}><MaterialCommunityIcons name={busy ? 'progress-clock' : 'arrow-right'} color={colors.onPrimary} size={20} /></Pressable></View>
+      <View style={st.inputWrap}><MaterialCommunityIcons name="barcode" size={20} color={colors.subtle} /><TextInput accessibilityLabel="Barcode number" value={barcode} onChangeText={setBarcode} keyboardType="numeric" placeholder="Enter barcode number" placeholderTextColor={colors.subtle} style={st.input} onSubmitEditing={() => void lookup()} returnKeyType="search" /><Pressable accessibilityRole="button" accessibilityLabel="Look up barcode" disabled={busy} onPress={() => void lookup()} style={st.searchAction}><MaterialCommunityIcons name={busy ? 'progress-clock' : 'arrow-right'} color={colors.onPrimary} size={20} /></Pressable></View>
       <Pressable onPress={addLabelPhoto} style={st.photoButton}><MaterialCommunityIcons name="camera-plus-outline" size={17} color={colors.primary} /><Text style={st.cameraButtonText}>{Platform.OS === 'web' ? 'Choose a label photo' : 'Take a label photo'}</Text></Pressable>
       {message ? <View style={st.message}><MaterialCommunityIcons name="information-outline" size={16} color={colors.amber} /><Text style={st.messageText}>{message}</Text></View> : null}
     </Card>
@@ -105,7 +105,7 @@ export default function ScanScreen() {
       </View> : null}
     </Card>
     <View style={st.orRow}><View style={st.rule} /><Text style={st.orText}>OR SEARCH THE PRODUCT CATALOG</Text><View style={st.rule} /></View>
-    <View style={st.searchBox}><MaterialCommunityIcons name="magnify" size={21} color={colors.subtle} /><TextInput value={search} onChangeText={setSearch} onSubmitEditing={() => void runSearch()} returnKeyType="search" placeholder="Search product name or brand" placeholderTextColor={colors.subtle} style={st.searchInput} /><Pressable accessibilityRole="button" accessibilityLabel="Search product catalog" onPress={() => void runSearch()}><MaterialCommunityIcons name="arrow-right-circle" size={25} color={colors.primary} /></Pressable></View>
+    <View style={st.searchBox}><MaterialCommunityIcons name="magnify" size={21} color={colors.subtle} /><TextInput accessibilityLabel="Search product name or brand" value={search} onChangeText={setSearch} onSubmitEditing={() => void runSearch()} returnKeyType="search" placeholder="Search product name or brand" placeholderTextColor={colors.subtle} style={st.searchInput} /><Pressable accessibilityRole="button" accessibilityLabel="Search product catalog" onPress={() => void runSearch()}><MaterialCommunityIcons name="arrow-right-circle" size={25} color={colors.primary} /></Pressable></View>
     <View style={st.categoryRow}>{categories.map(item => <Pressable key={item} accessibilityRole="button" accessibilityState={{ selected: category === item }} accessibilityLabel={`Filter by ${item}`} onPress={() => setCategory(item)} style={[st.category, category === item && st.categoryActive]}><Text style={[st.categoryText, category === item && st.categoryTextActive]}>{item.replaceAll('_', ' ')}</Text></Pressable>)}</View>
     <SectionTitle title="Product catalogue" action="Browse saved" onAction={() => { setSearch(''); setCategory('All'); void loadCatalog().catch(() => undefined); }} />
     {catalogMessage ? <Text style={st.cardSub}>{catalogMessage}</Text> : null}
@@ -115,10 +115,45 @@ export default function ScanScreen() {
 }
 
 function ProductRow({ item, onPress }: { item: Product; onPress: () => void }) {
-  return <Pressable accessibilityRole="button" accessibilityLabel={`Review ${item.brand} ${item.name}`} onPress={onPress}><Card style={st.productRow}><View style={[st.productIcon, { backgroundColor: item.color }]}><Text style={{ fontSize: 24 }}>{item.icon}</Text></View><View style={{ flex: 1 }}><Text style={st.brand}>{item.brand}</Text><Text style={st.cardTitle}>{item.name}</Text><Text style={st.cardSub}>{item.category.replaceAll('_', ' ')}</Text><View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 }}><Pill label={item.observation?.ingredients_text ? 'Ingredients recorded' : 'Ingredients missing'} tone={item.observation?.ingredients_text ? 'blue' : 'amber'} /><Pill label={`${Object.values(item.observation?.nutrients || {}).filter(value => value != null).length}/10 nutrients`} tone="neutral" /></View><Text style={st.cardSub}>{item.observation?.source.kind.replaceAll('_', ' ')} · Confirm the label</Text></View><MaterialCommunityIcons name="arrow-top-right" size={19} color={colors.primary} /></Card></Pressable>;
+  return <Pressable accessibilityRole="button" accessibilityLabel={`Review ${item.brand} ${item.name}`} onPress={onPress} style={({ pressed }) => pressed && st.pressed}><Card style={st.productRow}><View style={[st.productIcon, { backgroundColor: item.color }]}><Text style={{ fontSize: 24 }}>{item.icon}</Text></View><View style={{ flex: 1 }}><Text style={st.brand}>{item.brand}</Text><Text style={st.cardTitle}>{item.name}</Text><Text style={st.cardSub}>{item.category.replaceAll('_', ' ')}</Text><View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 }}><Pill label={item.observation?.ingredients_text ? 'Ingredients recorded' : 'Ingredients missing'} tone={item.observation?.ingredients_text ? 'blue' : 'amber'} /><Pill label={`${Object.values(item.observation?.nutrients || {}).filter(value => value != null).length}/10 nutrients`} tone="neutral" /></View><Text style={st.cardSub}>{item.observation?.source.kind.replaceAll('_', ' ')} · Confirm the label</Text></View><MaterialCommunityIcons name="arrow-top-right" size={19} color={colors.primary} /></Card></Pressable>;
 }
 const st = StyleSheet.create({
-  scanCard: { gap: 15, padding: 16 }, fssaiCard: { gap: 13 }, fssaiResult: { gap: 7, borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 13 }, resultDetail: { color: colors.ink, fontSize: 13, lineHeight: 19 }, resultNote: { color: colors.muted, fontSize: 11, lineHeight: 16, marginTop: 3 }, scanGraphic: { flexDirection: 'row', alignItems: 'center', gap: 12 }, scanFrame: { width: 51, height: 51, borderRadius: 17, backgroundColor: colors.lavender, alignItems: 'center', justifyContent: 'center' }, scanText: { flex: 1 }, cardTitle: { color: colors.ink, fontSize: 16, lineHeight: 23, fontWeight: '700' }, cardSub: { color: colors.muted, fontSize: 14, lineHeight: 21, marginTop: 4 }, cameraButton: { minHeight: 42, borderRadius: 13, backgroundColor: colors.lavender, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7 }, photoButton: { minHeight: 42, borderRadius: 13, backgroundColor: colors.lavenderTint, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7 }, cameraButtonText: { color: colors.primary, fontSize: 14, fontWeight: '800' }, cameraShell: { height: 220, borderRadius: 17, overflow: 'hidden', backgroundColor: colors.camera, position: 'relative', alignItems: 'center', justifyContent: 'center' }, camera: { ...StyleSheet.absoluteFill }, scanOverlay: { ...StyleSheet.absoluteFill, alignItems: 'center', justifyContent: 'center' }, scanCorners: { width: 220, height: 100, borderWidth: 2, borderColor: '#FFFFFF', borderRadius: 14, backgroundColor: 'transparent' }, cameraClose: { position: 'absolute', right: 10, top: 10, width: 44, height: 44, borderRadius: 12, backgroundColor: 'rgba(20,18,40,.65)', alignItems: 'center', justifyContent: 'center' }, cameraHint: { position: 'absolute', bottom: 12, color: '#FFFFFF', backgroundColor: 'rgba(20,18,40,.6)', paddingHorizontal: 10, paddingVertical: 6, overflow: 'hidden', borderRadius: 999, fontSize: 13, fontWeight: '700' }, inputWrap: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.canvas, borderRadius: 16, minHeight: 53, paddingHorizontal: 12 }, input: { flex: 1, color: colors.ink, fontSize: 13 }, searchAction: { width: 44, height: 44, borderRadius: 12, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' }, message: { flexDirection: 'row', gap: 7, backgroundColor: colors.amberBg, borderRadius: 12, padding: 10 }, messageText: { color: colors.amberInk, flex: 1, fontSize: 11, lineHeight: 15 },
-  orRow: { flexDirection: 'row', alignItems: 'center', gap: 10 }, rule: { height: 1, backgroundColor: colors.rule, flex: 1 }, orText: { fontSize: 9, fontWeight: '800', letterSpacing: 1, color: colors.subtle }, searchBox: { flexDirection: 'row', alignItems: 'center', gap: 9, minHeight: 50, borderRadius: 16, backgroundColor: colors.surface, paddingHorizontal: 13, borderWidth: 1, borderColor: colors.line }, searchInput: { color: colors.ink, flex: 1, fontSize: 13 },
-  categoryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 }, category: { paddingHorizontal: 12, paddingVertical: 12, borderRadius: radius.pill, backgroundColor: colors.chip }, categoryActive: { backgroundColor: colors.primary }, categoryText: { fontSize: 13, fontWeight: '700', color: colors.muted }, categoryTextActive: { color: colors.onPrimary }, productRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 13 }, productIcon: { width: 49, height: 49, borderRadius: radius.avatar, alignItems: 'center', justifyContent: 'center' }, brand: { color: colors.muted, fontSize: 12, fontWeight: '700', letterSpacing: .5, marginBottom: 3 },
+  scanCard: { gap: 16, padding: 18 },
+  scanGraphic: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  scanFrame: { width: 52, height: 52, borderRadius: radius.tile, backgroundColor: colors.lavender, alignItems: 'center', justifyContent: 'center' },
+  scanText: { flex: 1 },
+  cardTitle: { ...typography.cardTitle, color: colors.ink },
+  cardSub: { ...typography.meta, color: colors.muted, marginTop: 4 },
+  cameraButton: { minHeight: 48, borderRadius: radius.control, backgroundColor: colors.lavender, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7 },
+  photoButton: { minHeight: 48, borderRadius: radius.control, backgroundColor: colors.lavenderTint, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7 },
+  cameraButtonText: { color: colors.primary, ...typography.action },
+  cameraShell: { height: 240, borderRadius: radius.card, overflow: 'hidden', backgroundColor: colors.camera, position: 'relative', alignItems: 'center', justifyContent: 'center' },
+  camera: { ...StyleSheet.absoluteFill },
+  scanOverlay: { ...StyleSheet.absoluteFill, alignItems: 'center', justifyContent: 'center' },
+  scanCorners: { width: 240, height: 110, borderWidth: 2, borderColor: '#FFFFFF', borderRadius: radius.control, backgroundColor: 'transparent' },
+  cameraClose: { position: 'absolute', right: 10, top: 10, width: 44, height: 44, borderRadius: radius.control, backgroundColor: 'rgba(20,18,40,.65)', alignItems: 'center', justifyContent: 'center' },
+  cameraHint: { position: 'absolute', bottom: 12, color: '#FFFFFF', backgroundColor: 'rgba(20,18,40,.6)', paddingHorizontal: 12, paddingVertical: 7, overflow: 'hidden', borderRadius: radius.pill, ...typography.meta, fontWeight: '700' },
+  inputWrap: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderColor: colors.stroke, backgroundColor: colors.surface, borderRadius: radius.control, minHeight: 54, paddingHorizontal: 12 },
+  input: { flex: 1, color: colors.ink, fontSize: 16 },
+  searchAction: { width: 44, height: 44, borderRadius: radius.control, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
+  message: { flexDirection: 'row', gap: 8, backgroundColor: colors.amberBg, borderRadius: radius.chip, padding: 12 },
+  messageText: { color: colors.amberInk, flex: 1, ...typography.meta },
+  orRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  rule: { height: 1, backgroundColor: colors.rule, flex: 1 },
+  orText: { fontSize: 11, lineHeight: 15, fontWeight: '800', letterSpacing: 1, color: colors.subtle },
+  searchBox: { flexDirection: 'row', alignItems: 'center', gap: 9, minHeight: 54, borderRadius: radius.control, backgroundColor: colors.surface, paddingHorizontal: 14, borderWidth: 1, borderColor: colors.stroke },
+  searchInput: { color: colors.ink, flex: 1, fontSize: 16 },
+  categoryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  category: { paddingHorizontal: 14, paddingVertical: 12, borderRadius: radius.pill, backgroundColor: colors.chip },
+  categoryActive: { backgroundColor: colors.primary },
+  categoryText: { ...typography.meta, fontWeight: '700', color: colors.muted },
+  categoryTextActive: { color: colors.onPrimary },
+  productRow: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
+  productIcon: { width: 50, height: 50, borderRadius: radius.avatar, alignItems: 'center', justifyContent: 'center' },
+  brand: { color: colors.muted, fontSize: 12, lineHeight: 16, fontWeight: '800', letterSpacing: .5, marginBottom: 3 },
+  pressed: { opacity: 0.9 },
+  fssaiCard: { gap: 13 },
+  fssaiResult: { gap: 7, borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 13 },
+  resultDetail: { color: colors.ink, fontSize: 13, lineHeight: 19 },
+  resultNote: { color: colors.muted, fontSize: 11, lineHeight: 16, marginTop: 3 },
 });

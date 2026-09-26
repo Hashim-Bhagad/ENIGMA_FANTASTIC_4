@@ -30,17 +30,17 @@ def _review_reasons(result: dict, food: FoodObservation, blocked: str | None) ->
         elif code == "ambiguous_ingredients":
             reasons.append("Ambiguous ingredient wording: confirm the specific source")
         elif code == "limit_nutrient_unknown":
-            reasons.append(f"{item.get('field')} unknown for a recorded limit")
+            reasons.append(f"{item.get('field')} value missing for a limit you recorded")
         elif code == "portion_missing":
             reasons.append("Portion basis unknown")
         elif code == "goal_nutrient_unknown":
-            reasons.append(f"{item.get('field')} unknown for a comparison goal")
+            reasons.append(f"{item.get('field')} value missing for a comparison goal")
         elif code == "condition_carbohydrate_unknown":
-            reasons.append("Carbohydrate unknown for diabetes awareness")
+            reasons.append("Carbohydrate value missing for your diabetes check")
         elif code == "condition_sodium_unknown":
-            reasons.append("Sodium unknown for hypertension awareness")
+            reasons.append("Sodium value missing for your hypertension check")
         elif code == "condition_pack_unsupported":
-            reasons.append("No awareness pack for a recorded condition")
+            reasons.append("No specific checks cover one of your recorded conditions")
         else:
             reasons.append(item["title"])
     if blocked:

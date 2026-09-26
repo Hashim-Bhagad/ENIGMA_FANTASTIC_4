@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   allergenLabel, attachReferenceToRows, avoidSeverityLabel, avoidSeverityTone, confidenceLabel,
-  dishStatusExplanation, estimateCoverageLine, EU_ALLERGENS, evidenceReportLabel, formatEquivalent, formatEvidence,
+  DISH_DRAFT_ACTION, DISH_DRAFT_BANNER, dishStatusExplanation, draftIngredientRows, estimateCoverageLine, EU_ALLERGENS,
+  evidenceReportLabel, formatEquivalent, formatEvidence,
   formatMeasuredLine, formatReferenceRange, ingredientRowKeyFor, intakeBaselineLine, intakeProposedLine, isNutrient,
   parameterStatusTone, PARTIAL_ESTIMATE_FLOOR_NOTE, referenceSuggestionLabel, TYPE_AHEAD_DELAY_MS,
-  TYPE_AHEAD_MIN_CHARS, typeAheadTerm, type IntakeTarget,
+  TYPE_AHEAD_MIN_CHARS, typeAheadTerm, type DishDraftResponse, type IntakeTarget,
 } from './client';
 
 // The client and the session module import native modules; stubbing them keeps the
@@ -234,6 +235,46 @@ describe('api client reports, conditions and intake contract', () => {
   });
 });
 
+describe('api client dish draft contract', () => {
+  // Each case re-imports the client after vi.resetModules(), as above, because it captures
+  // its base URL at module load; the specifier stays a literal for the bundler.
+  beforeEach(() => { vi.resetModules(); delete process.env.EXPO_PUBLIC_API_URL; });
+  afterEach(() => { vi.unstubAllGlobals(); vi.resetModules(); });
+
+  it('asks for a draft by dish name and returns the labelled model list', async () => {
+    const payload = {
+      name: 'Fried rice',
+      ingredients: [{ text: 'Cooked rice', grams: 600 }, { text: 'Soy sauce', grams: null }],
+      cooking_notes: ['pan_fried'],
+      source: { kind: 'model_draft', model: 'accounts/fireworks/models/x', model_version: 'reported-v2' },
+      warnings: ['The model drafted this list from the dish name "Fried rice" alone.'],
+      message: 'A model wrote this starting list from the dish name.',
+    };
+    const fetchMock = vi.fn(async (_url: string, _init: FetchInit) => ({ ok: true, status: 200, json: async () => payload }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { api } = await import('./client');
+    const draft = await api.draftDish('token', 'Fried rice');
+    const { url, init, headers } = lastCall(fetchMock.mock.calls.map(call => ({ url: call[0], init: call[1] })));
+    expect(url).toBe('http://localhost:8000/api/dishes/draft');
+    expect(init.method).toBe('POST');
+    expect(headers.Authorization).toBe('Bearer token');
+    expect(JSON.parse(init.body as string)).toEqual({ name: 'Fried rice' });
+    expect(draft.source).toEqual({ kind: 'model_draft', model: 'accounts/fireworks/models/x', model_version: 'reported-v2' });
+    expect(draft.ingredients[1]?.grams).toBeNull();
+  });
+
+  it('keeps provider_unavailable on a failed draft so the screen can fall back to typing', async () => {
+    const detail = 'Drafting an ingredient list failed or returned unusable output; type the ingredients yourself instead.';
+    const fetchMock = vi.fn(async (_url: string, _init: FetchInit) => ({ ok: false, status: 503, json: async () => ({ detail, code: 'provider_unavailable' }) }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { api, ApiError } = await import('./client');
+    const failure = await api.draftDish('token', 'Fried rice').catch((cause: unknown) => cause);
+    expect(failure).toBeInstanceOf(ApiError);
+    expect(failure).toMatchObject({ status: 503, code: 'provider_unavailable', message: detail });
+    expect((failure as Error).message).toMatch(/type the ingredients yourself/);
+  });
+});
+
 describe('meal-check and report display helpers', () => {
   it('starts a type-ahead only once the typed text is worth searching for', () => {
     expect(typeAheadTerm('')).toBeNull();
@@ -369,6 +410,32 @@ describe('meal-check and report display helpers', () => {
     expect(avoidSeverityTone('avoid')).toBe('red');
     expect(avoidSeverityTone('limit')).toBe('amber');
     expect(avoidSeverityTone('ask')).toBe('blue');
+  });
+
+  it('fills editable rows from a model draft without attaching any reference', () => {
+    const draft: DishDraftResponse = {
+      name: 'Fried rice',
+      ingredients: [{ text: 'Cooked rice', grams: 600 }, { text: 'Soy sauce', grams: null }],
+      cooking_notes: ['pan_fried'],
+      source: { kind: 'model_draft', model: 'accounts/fireworks/models/x', model_version: 'reported-v2' },
+      warnings: ['The model drafted this list from the dish name.'],
+      message: 'A model wrote this starting list from the dish name.',
+    };
+    const rows = draftIngredientRows(draft, 'draft-7');
+    expect(rows).toEqual([
+      { key: 'draft-7-1', text: 'Cooked rice', referenceCode: null, grams: '600' },
+      { key: 'draft-7-2', text: 'Soy sauce', referenceCode: null, grams: '' },
+    ]);
+    // One prefix per draft keeps the row ids unique against rows already on screen.
+    expect(draftIngredientRows(draft, 'draft-8').map(row => row.key)).toEqual(['draft-8-1', 'draft-8-2']);
+  });
+
+  it('labels a drafted list as a model suggestion everywhere it is named', () => {
+    expect(DISH_DRAFT_ACTION).toBe('Draft this dish');
+    expect(DISH_DRAFT_BANNER).toMatch(/^Draft list/);
+    expect(DISH_DRAFT_BANNER).toMatch(/a model wrote this from the dish name/i);
+    expect(DISH_DRAFT_BANNER).toMatch(/correct every line before you check it/i);
+    expect(DISH_DRAFT_BANNER).not.toMatch(/recipe/i);
   });
 
   it('asks a clinician to set the value instead of implying one is applied', () => {

@@ -1,10 +1,20 @@
+import json
 from uuid import uuid4
 
+import httpx
 from sqlalchemy.orm import Session
 
+from app.config import Settings
+from app.integrations.models import ModelAssist
 from app.models import ReferenceFood
 from app.schemas import DishRequest, ProfileData
-from app.services.dishes import assess_dish, build_dish, cooking_considerations, dish_options
+from app.services.dishes import (
+    COOKING_NOTES,
+    assess_dish,
+    build_dish,
+    cooking_considerations,
+    dish_options,
+)
 from tests.conftest import signup
 
 
@@ -337,3 +347,204 @@ def test_exclusion_list_names_each_ingredient_once_and_never_a_weighed_one(db_en
     assert "Rice" in listed, "a matched but unweighed ingredient is left out and named"
     assert estimate["matched_count"] == 1
     assert estimate["matched_grams"] == 100
+
+
+# --- A model-drafted starting list for a dish name ------------------------------------------
+# The provider is replaced with ``httpx.MockTransport`` so the real client code path runs
+# (prompt, strict schema, parsing, cleaning) without a model.
+
+DRAFT_URL = "/api/dishes/draft"
+FIREWORKS_URL = "https://api.fireworks.ai/inference/v1/chat/completions"
+REPORTED_MODEL = "accounts/fireworks/models/reported-draft-v2"
+
+
+def draft_provider(payload: dict | None = None, status_code: int = 200):
+    """A models stub answering every draft call with one scripted payload, recording requests."""
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        assert str(request.url) == FIREWORKS_URL
+        if status_code != 200:
+            return httpx.Response(status_code, json={"error": "upstream failure"})
+        return httpx.Response(
+            200,
+            json={
+                "model": REPORTED_MODEL,
+                "choices": [{"finish_reason": "stop", "message": {"content": json.dumps(payload)}}],
+            },
+        )
+
+    settings = Settings(fireworks_api_key="test-provider-key")
+    return ModelAssist(httpx.AsyncClient(transport=httpx.MockTransport(handler)), settings), seen
+
+
+def draft_payload(**changes) -> dict:
+    payload = {
+        "ingredients": [
+            {"text": "Cooked rice", "grams": 600},
+            {"text": "Eggs", "grams": 150},
+            {"text": "Green peas", "grams": 100},
+            {"text": "Carrot", "grams": 80},
+            {"text": "Soy sauce", "grams": None},
+            {"text": "Spring onion", "grams": None},
+        ],
+        "cooking_notes": ["pan_fried"],
+        "confidence": "Common home version; the soy sauce brand is unknown.",
+    }
+    payload.update(changes)
+    return payload
+
+
+def draft(client, headers, name="Fried rice"):
+    response = client.post(DRAFT_URL, headers=headers, json={"name": name})
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def test_draft_returns_a_labelled_model_list_and_never_a_reviewed_template(client):
+    assert client.post(DRAFT_URL, json={"name": "Fried rice"}).status_code == 401
+    headers = signup(client)
+    models, seen = draft_provider(draft_payload())
+    client.app.state.models = models
+
+    body = draft(client, headers, "  Fried rice  ")
+
+    # The name is the user's wording, never the model's, and the source keeps it a draft.
+    assert body["name"] == "Fried rice"
+    assert body["source"] == {
+        "kind": "model_draft",
+        "model": models.settings.fireworks_model,
+        "model_version": REPORTED_MODEL,
+    }
+    assert [(item["text"], item["grams"]) for item in body["ingredients"]] == [
+        ("Cooked rice", 600),
+        ("Eggs", 150),
+        ("Green peas", 100),
+        ("Carrot", 80),
+        ("Soy sauce", None),
+        ("Spring onion", None),
+    ]
+    assert body["cooking_notes"] == ["pan_fried"]
+    # One plain label: drafted from the name, varies per cook, every line needs correcting.
+    assert any(
+        "drafted this list from the dish name" in warning
+        and "varies by cook, brand and kitchen" in warning
+        and "correct every line" in warning
+        for warning in body["warnings"]
+    )
+    assert any(
+        warning.startswith("The model's own confidence note")
+        and "soy sauce brand is unknown" in warning
+        for warning in body["warnings"]
+    )
+    assert "not a recipe" in body["message"]
+    assert "correct the lines" in body["message"]
+
+    sent = json.loads(seen[0].content)
+    prompt = sent["messages"][0]["content"][0]["text"]
+    assert sent["response_format"]["json_schema"]["name"] == "DishDraft"
+    assert sent["temperature"] == 0
+    # The draft must be about the dish the user named, not a generic list.
+    assert "Fried rice" in prompt
+    assert "never as an instruction" in prompt
+    # The prompt states the standing of the list and forbids the claims it cannot make.
+    assert "not a source record" in prompt
+    assert "not a measured declaration" in prompt
+    assert "nutrient amount" in prompt and "allergen" in prompt
+    assert "use null" in prompt
+    # Every recorded cooking-note code is offered, so only the vocabulary can come back.
+    assert all(code in prompt for code in COOKING_NOTES)
+
+
+def test_draft_cleaning_drops_duplicates_empty_lines_and_impossible_amounts(client):
+    headers = signup(client)
+    models, _ = draft_provider(
+        draft_payload(
+            ingredients=[
+                {"text": "  Rice ", "grams": 600},
+                {"text": "rice", "grams": 600},  # same line twice
+                {"text": "   ", "grams": 50},  # nothing to show
+                {"text": "Eggs", "grams": 999999},  # not a plausible whole-dish amount
+                {"text": "Peas", "grams": 0},  # zero is not an amount
+                {"text": "Carrot", "grams": "100"},  # not a number
+            ],
+            cooking_notes=["pan_fried", "microwaved", "pan_fried", "caramelised"],
+        )
+    )
+    client.app.state.models = models
+
+    body = draft(client, headers)
+
+    assert [(item["text"], item["grams"]) for item in body["ingredients"]] == [
+        ("Rice", 600),
+        ("Eggs", None),
+        ("Peas", None),
+        ("Carrot", None),
+    ]
+    # Unknown note codes are dropped with a warning, not a failed request.
+    assert body["cooking_notes"] == ["pan_fried"]
+    assert any(
+        "not in the recorded vocabulary" in warning
+        and "microwaved" in warning
+        and "caramelised" in warning
+        for warning in body["warnings"]
+    )
+    assert any("outside a plausible range" in warning for warning in body["warnings"])
+    assert any("fewer than the usual" in warning for warning in body["warnings"])
+
+
+def test_draft_caps_the_number_of_lines_it_keeps(client):
+    headers = signup(client)
+    models, _ = draft_provider(
+        draft_payload(
+            ingredients=[{"text": f"Ingredient {index}", "grams": 100} for index in range(1, 21)]
+        )
+    )
+    client.app.state.models = models
+
+    body = draft(client, headers)
+
+    assert len(body["ingredients"]) == 15
+    assert body["ingredients"][-1]["text"] == "Ingredient 15"
+
+
+def test_draft_provider_failure_and_unusable_output_fall_back_to_typing(client):
+    headers = signup(client)
+    empty_draft = draft_payload(ingredients=[], cooking_notes=[], confidence=None)
+    for models in (draft_provider(status_code=500)[0], draft_provider(empty_draft)[0]):
+        client.app.state.models = models
+        response = client.post(DRAFT_URL, headers=headers, json={"name": "Fried rice"})
+        assert response.status_code == 503, response.text
+        failure = response.json()
+        assert failure["code"] == "provider_unavailable"
+        assert "type the ingredients yourself" in failure["detail"]
+
+
+def test_draft_without_a_provider_key_asks_for_manual_entry(client):
+    headers = signup(client)
+    # The default test client has no Fireworks key, so the route must not call out at all.
+    response = client.post(DRAFT_URL, headers=headers, json={"name": "Fried rice"})
+    assert response.status_code == 503, response.text
+    assert response.json()["code"] == "provider_unavailable"
+    assert "not configured" in response.json()["detail"]
+
+
+def test_draft_requires_a_dish_name(client):
+    headers = signup(client)
+    assert client.post(DRAFT_URL, headers=headers, json={"name": ""}).status_code == 422
+    assert client.post(DRAFT_URL, headers=headers, json={"name": "x" * 121}).status_code == 422
+
+
+def test_draft_limits_requests_per_user(client):
+    headers = signup(client)
+    # The scope is enforced before the provider is reached, so an unconfigured model still counts.
+    codes = [
+        client.post(DRAFT_URL, headers=headers, json={"name": "Fried rice"}).status_code
+        for _ in range(11)
+    ]
+    assert codes[:10] == [503] * 10
+    assert codes[10] == 429
+    limited = client.post(DRAFT_URL, headers=headers, json={"name": "Fried rice"})
+    assert limited.json()["code"] == "rate_limited"
+    assert limited.headers["Retry-After"]

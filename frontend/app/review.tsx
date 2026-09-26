@@ -6,7 +6,7 @@ import { Button, Card, Field, PageHeader, Pill, Screen } from '@/src/components/
 import { api, type Allergen, type FoodObservation, type ProductProvenance } from '@/src/api/client';
 import { nutrientFields, nutrientInputs } from '@/src/data/nutrients';
 import { useApp } from '@/src/state/AppContext';
-import { colors } from '@/src/theme';
+import { colors, radius, typography } from '@/src/theme';
 
 const ALLERGEN_OPTIONS: { value: Allergen; label: string }[] = [
   { value: 'wheat', label: 'Wheat' }, { value: 'milk', label: 'Milk' }, { value: 'eggs', label: 'Eggs' },
@@ -80,7 +80,7 @@ export default function ReviewScreen() {
   };
 
   return <Screen>
-    <PageHeader eyebrow="Before the check" title="Review the label" subtitle="Correct the observations using the product in your hand." back />
+    <PageHeader title="Review the label" subtitle="Correct the observations using the product in your hand." back />
     <Card style={st.product}><View style={[st.productIcon, { backgroundColor: product.color }]}><Text style={{ fontSize: 27 }}>{product.icon}</Text></View><View style={{ flex: 1 }}><Pill label={product.category.toUpperCase()} tone="purple" /><Text style={st.productName}>{name}</Text><Text style={st.brand}>{product.brand} · {product.barcode || 'barcode not entered'}</Text></View></Card>
     {labelPhoto && <Card style={st.photoCard}><View style={st.photoHeading}><View style={{ flex: 1 }}><Text style={st.photoTitle}>Label photo attached</Text><Text style={st.photoCopy}>Model extraction can be wrong. Compare each field with the actual package.</Text></View><Pressable accessibilityRole="button" accessibilityLabel="Remove label photo" onPress={() => setLabelPhoto(null)}><MaterialCommunityIcons name="close-circle-outline" size={21} color={colors.muted} /></Pressable></View><Image source={{ uri: labelPhoto }} resizeMode="cover" style={st.photo} /></Card>}
     {original?.source.warnings?.map((warning, index) => <Card key={index} style={st.warning}><MaterialCommunityIcons name="information-outline" size={17} color={colors.amber} /><Text style={st.warningText}>{warning}</Text></Card>)}
@@ -100,13 +100,13 @@ export default function ReviewScreen() {
       <Field label="Ingredients" value={ingredients} onChangeText={setIngredients} placeholder="Enter the ingredient list" multiline />
       <Field label="Allergen advisory" value={advisory} onChangeText={setAdvisory} placeholder="Enter the exact may-contain statement, or leave blank" multiline />
       <View style={{ gap: 8 }}><Text style={st.basisLabel}>NUTRITION BASIS</Text><View style={st.bases}>{['per 100 g', 'per 100 ml', 'Not supplied'].map(option => <Pressable key={option} onPress={() => { if (option !== basis) { setNutrition(nutrientInputs()); setBasis(option); } }} style={[st.basisOption, basis === option && st.basisOptionSelected]}><Text style={[st.basisOptionText, basis === option && st.basisOptionTextSelected]}>{option}</Text></Pressable>)}</View><Text style={st.photoCopy}>Changing the basis clears amounts so values cannot be silently relabelled.</Text></View>
-      {nutrientFields.map(({ key, label, unit }) => <Field key={key} label={`${label} (${unit}, optional)`} value={nutrition[key]} onChangeText={value => setNutrition(current => ({ ...current, [key]: value }))} placeholder="Unknown — enter only if listed" keyboardType="numeric" />)}
+      {nutrientFields.map(({ key, label, unit }) => <Field key={key} label={`${label} (${unit}, optional)`} value={nutrition[key]} onChangeText={value => setNutrition(current => ({ ...current, [key]: value }))} placeholder="Leave blank if not listed" keyboardType="numeric" />)}
       <Field label={basis === 'per 100 ml' ? 'Portion checked (ml, optional)' : 'Portion checked (g, optional)'} value={portion} onChangeText={setPortion} placeholder="Needed to calculate your portion" keyboardType="numeric" />
     </Card>
     <Card style={st.fields}>
       <View style={{ gap: 8 }}><Text style={st.basisLabel}>DECLARED ALLERGENS PRINTED ON THE PACKAGE</Text><View style={st.bases}>{ALLERGEN_OPTIONS.map(option => { const active = declared.includes(option.value); return <Pressable key={option.value} accessibilityRole="checkbox" accessibilityState={{ checked: active }} accessibilityLabel={option.label} onPress={() => setDeclared(current => active ? current.filter(value => value !== option.value) : [...current, option.value])} style={[st.basisOption, active && st.basisOptionSelected]}><Text style={[st.basisOptionText, active && st.basisOptionTextSelected]}>{option.label}</Text></Pressable>; })}</View><Text style={st.photoCopy}>Select only allergens the package declares in the ingredient or contains statement. Leaving them unselected keeps the declaration unknown; the precautionary (may-contain) text stays in the advisory field above.</Text></View>
     </Card>
-    <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: confirmed }} accessibilityLabel="Confirm the ingredient list and advisory were checked against the package" onPress={() => setConfirmed(value => !value)} style={st.confirm}><MaterialCommunityIcons name={confirmed ? 'checkbox-marked' : 'checkbox-blank-outline'} size={23} color={confirmed ? colors.primary : colors.muted} /><Text style={st.confirmText}>I checked the complete ingredient list and allergen advisory against this package. If no advisory is printed, I left that field blank.</Text></Pressable>
+    <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: confirmed }} accessibilityLabel="Confirm the ingredient list and advisory were checked against the package" onPress={() => setConfirmed(value => !value)} style={({ pressed }) => [st.confirm, pressed && st.pressed]}><MaterialCommunityIcons name={confirmed ? 'checkbox-marked' : 'checkbox-blank-outline'} size={23} color={confirmed ? colors.primary : colors.muted} /><Text style={st.confirmText}>I checked the complete ingredient list and allergen advisory against this package. If no advisory is printed, I left that field blank.</Text></Pressable>
     <Card style={st.tip}><MaterialCommunityIcons name="lightbulb-on-outline" size={18} color={colors.primary} /><Text style={st.tipText}>An unchecked declaration stays incomplete. Missing amounts remain unknown; a portion is needed for recorded limits.</Text></Card>
     {validationError || error ? <Text accessibilityRole="alert" style={st.error}>{validationError || error}</Text> : null}
     <Button title="Assess this product" icon="arrow-right" loading={busyFor('assess')} disabled={busyFor('assess')} onPress={() => void submit()} />
@@ -114,7 +114,33 @@ export default function ReviewScreen() {
   </Screen>;
 }
 const st = StyleSheet.create({
-  sourceCard: { gap: 8, backgroundColor: colors.lavender }, link: { color: colors.primary, fontSize: 12, fontWeight: '700', paddingVertical: 4 }, traceRow: { borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 9, gap: 3 }, traceTitle: { color: colors.ink, fontSize: 12, fontWeight: '700' },
-  product: { flexDirection: 'row', alignItems: 'center', gap: 13, padding: 15 }, productIcon: { width: 58, height: 58, borderRadius: 19, alignItems: 'center', justifyContent: 'center' }, productName: { color: colors.ink, fontSize: 16, fontWeight: '800', marginTop: 8 }, brand: { color: colors.muted, fontSize: 10, marginTop: 4 }, photoCard: { gap: 11 }, photoHeading: { flexDirection: 'row', alignItems: 'center', gap: 9 }, photoTitle: { color: colors.ink, fontSize: 12, fontWeight: '800' }, photoCopy: { color: colors.muted, fontSize: 10, lineHeight: 14, marginTop: 3 }, photo: { width: '100%', height: 180, borderRadius: 14, backgroundColor: colors.canvas },
-  fields: { gap: 15 }, basisLabel: { fontSize: 8, letterSpacing: .8, color: colors.muted, fontWeight: '800' }, bases: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 }, basisOption: { paddingHorizontal: 10, paddingVertical: 8, backgroundColor: colors.canvas, borderRadius: 999 }, basisOptionSelected: { backgroundColor: colors.primary }, basisOptionText: { color: colors.muted, fontSize: 10, fontWeight: '700' }, basisOptionTextSelected: { color: '#FFFFFF' }, confirm: { flexDirection: 'row', alignItems: 'flex-start', gap: 9, paddingHorizontal: 3 }, confirmText: { flex: 1, color: colors.ink, fontSize: 11, lineHeight: 16 }, tip: { flexDirection: 'row', gap: 9, alignItems: 'flex-start', backgroundColor: colors.lavender }, tipText: { flex: 1, color: '#4E3AC2', fontSize: 11, lineHeight: 16 }, caption: { textAlign: 'center', color: colors.subtle, fontSize: 10, lineHeight: 14, paddingHorizontal: 15 }, error: { color: colors.red, fontSize: 12, lineHeight: 17 }, warning: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: colors.amberBg }, warningText: { flex: 1, color: '#785015', fontSize: 11, lineHeight: 16 },
+  sourceCard: { gap: 8, backgroundColor: colors.lavender },
+  link: { color: colors.primary, ...typography.meta, fontWeight: '700', paddingVertical: 6 },
+  traceRow: { borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 10, gap: 3 },
+  traceTitle: { color: colors.ink, fontSize: 14, lineHeight: 20, fontWeight: '700' },
+  product: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16 },
+  productIcon: { width: 58, height: 58, borderRadius: radius.control, alignItems: 'center', justifyContent: 'center' },
+  productName: { ...typography.cardTitle, color: colors.ink, marginTop: 8 },
+  brand: { ...typography.meta, color: colors.muted, marginTop: 4 },
+  photoCard: { gap: 12 },
+  photoHeading: { flexDirection: 'row', alignItems: 'center', gap: 9 },
+  photoTitle: { color: colors.ink, fontSize: 14, lineHeight: 20, fontWeight: '800' },
+  photoCopy: { ...typography.meta, color: colors.muted, marginTop: 3 },
+  photo: { width: '100%', height: 200, borderRadius: radius.control, backgroundColor: colors.canvas },
+  fields: { gap: 16 },
+  basisLabel: { ...typography.label, color: colors.muted },
+  bases: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  basisOption: { paddingHorizontal: 14, paddingVertical: 10, backgroundColor: colors.canvas, borderRadius: radius.pill },
+  basisOptionSelected: { backgroundColor: colors.primary },
+  basisOptionText: { color: colors.muted, ...typography.meta, fontWeight: '700' },
+  basisOptionTextSelected: { color: colors.onPrimary },
+  confirm: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, paddingHorizontal: 3, paddingVertical: 6, minHeight: 44 },
+  confirmText: { flex: 1, color: colors.ink, ...typography.meta },
+  tip: { flexDirection: 'row', gap: 9, alignItems: 'flex-start', backgroundColor: colors.lavender },
+  tipText: { flex: 1, color: colors.purpleInk, ...typography.meta },
+  caption: { textAlign: 'center', ...typography.caption, color: colors.subtle, paddingHorizontal: 15 },
+  error: { ...typography.meta, color: colors.red },
+  warning: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: colors.amberBg },
+  warningText: { flex: 1, color: colors.amberInk, ...typography.meta },
+  pressed: { opacity: 0.85 },
 });

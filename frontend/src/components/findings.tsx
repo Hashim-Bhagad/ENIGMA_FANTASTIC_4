@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Card, Pill } from '@/src/components/ui';
-import { colors, radius } from '@/src/theme';
+import { colors, radius, typography } from '@/src/theme';
 import type { AssessmentResult, AssessmentStatus, Finding } from '@/src/api/client';
 
 /** Keep the existing status→tone mapping in one place for every assessment surface. */
@@ -20,14 +20,14 @@ export function FindingCard({ finding }: { finding: Finding }) {
   const [evidenceOpen, setEvidenceOpen] = useState(false);
   const appearance = GROUPS[finding.group];
   return <Card style={st.finding}>
-    <View style={[st.icon, { backgroundColor: appearance.bg }]}><MaterialCommunityIcons name={appearance.icon} size={20} color={appearance.color} /></View>
+    <View style={[st.icon, { backgroundColor: appearance.bg }]}><MaterialCommunityIcons name={appearance.icon} size={21} color={appearance.color} /></View>
     <View style={{ flex: 1, gap: 6 }}>
       <View style={st.heading}><Text style={st.title}>{finding.title}</Text><Pill label={appearance.label} tone={appearance.tone} /></View>
       <Text style={st.detail}>{finding.detail}</Text>
       {finding.next_step ? <Text style={st.detail}><Text style={st.lead}>Next step: </Text>{finding.next_step}</Text> : null}
       {finding.affects.length > 0 ? <Text style={st.meta}>Affects: {finding.affects.join(', ')}</Text> : null}
       {finding.evidence.length > 0 ? <>
-        <Pressable accessibilityRole="button" accessibilityState={{ expanded: evidenceOpen }} onPress={() => setEvidenceOpen(value => !value)}><Text style={st.toggle}>{evidenceOpen ? 'Hide evidence' : `Show evidence (${finding.evidence.length})`}</Text></Pressable>
+        <Pressable accessibilityRole="button" accessibilityState={{ expanded: evidenceOpen }} onPress={() => setEvidenceOpen(value => !value)} style={({ pressed }) => [st.toggleRow, pressed && st.pressed]}><Text style={st.toggle}>{evidenceOpen ? 'Hide evidence' : `Show evidence (${finding.evidence.length})`}</Text></Pressable>
         {evidenceOpen ? finding.evidence.map((item, index) => <Text key={index} selectable style={st.meta}>{'\u2022'} {item}</Text>) : null}
       </> : null}
     </View>
@@ -46,12 +46,14 @@ export function findingCount(result: AssessmentResult): number {
 }
 
 const st = StyleSheet.create({
-  finding: { flexDirection: 'row', alignItems: 'flex-start', gap: 11, padding: 14 },
-  icon: { width: 38, height: 38, borderRadius: radius.chip, alignItems: 'center', justifyContent: 'center' },
+  finding: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, padding: 16 },
+  icon: { width: 40, height: 40, borderRadius: radius.chip, alignItems: 'center', justifyContent: 'center' },
   heading: { alignItems: 'flex-start', gap: 8 },
-  title: { flex: 1, color: colors.ink, fontSize: 16, lineHeight: 23, fontWeight: '800' },
-  detail: { color: colors.ink, fontSize: 14, lineHeight: 21 },
+  title: { flex: 1, color: colors.ink, fontSize: 16, lineHeight: 22, fontWeight: '800' },
+  detail: { ...typography.body, color: colors.ink },
   lead: { fontWeight: '800' },
-  meta: { color: colors.muted, fontSize: 13, lineHeight: 20 },
-  toggle: { color: colors.primary, fontSize: 14, fontWeight: '700', paddingVertical: 12 },
+  meta: { ...typography.meta, color: colors.muted },
+  toggleRow: { minHeight: 44, justifyContent: 'center' },
+  toggle: { ...typography.bodyStrong, color: colors.primary },
+  pressed: { opacity: 0.8 },
 });

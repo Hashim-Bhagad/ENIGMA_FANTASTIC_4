@@ -4,7 +4,7 @@ import { router } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Button, Card, PageHeader, Pill, Screen, SectionTitle } from '@/src/components/ui';
 import { useApp } from '@/src/state/AppContext';
-import { colors, radius } from '@/src/theme';
+import { colors, radius, typography } from '@/src/theme';
 import { toProduct, type RecommendationCandidate } from '@/src/api/client';
 import { nutrientFields } from '@/src/data/nutrients';
 
@@ -18,7 +18,7 @@ export default function ReplacementsScreen() {
   const verified = recommendation ? recommendation.candidates.filter(candidate => candidate.verified) : [];
   const unverified = recommendation ? [...recommendation.candidates.filter(candidate => !candidate.verified), ...(recommendation.needs_review || [])] : [];
   return <Screen>
-    <PageHeader eyebrow="Compare options" title="Eligible replacements" subtitle={`Options checked against your profile for ${product.name}.`} back />
+    <PageHeader title="Eligible replacements" subtitle={`Options checked against your profile for ${product.name}.`} back />
     <Card style={st.context}><View style={st.contextIcon}><MaterialCommunityIcons name="shield-check-outline" size={20} color={colors.primary} /></View><View style={{ flex: 1 }}><Text style={st.title}>Eligibility comes first</Text><Text style={st.copy}>The backend filters conflicts and missing required checks before comparing nutrients. A candidate still needs its current package confirmed.</Text></View></Card>
     {busy && !recommendation && <Card style={st.empty}><MaterialCommunityIcons name="progress-clock" size={26} color={colors.primary} /><Text style={st.copy}>Checking comparable products…</Text></Card>}
     {error ? <Card style={st.error}><Text style={st.errorText}>{error}</Text><Button title="Try again" compact secondary onPress={retry} /></Card> : null}
@@ -48,4 +48,26 @@ function CandidateCard({ candidate }: { candidate: RecommendationCandidate }) {
   </Card>;
 }
 
-const st = StyleSheet.create({ context: { flexDirection: 'row', gap: 11, alignItems: 'flex-start', backgroundColor: colors.canvasSoft }, contextIcon: { width: 40, height: 40, borderRadius: radius.chip, backgroundColor: colors.lavender, alignItems: 'center', justifyContent: 'center' }, title: { color: colors.ink, fontSize: 17, lineHeight: 24, fontWeight: '800' }, copy: { color: colors.muted, fontSize: 14, lineHeight: 21, marginTop: 4 }, summary: { gap: 9 }, note: { color: colors.subtle, fontSize: 13, lineHeight: 20 }, product: { gap: 13 }, productTop: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 12 }, food: { width: 43, height: 43, borderRadius: radius.input, backgroundColor: colors.lavender, alignItems: 'center', justifyContent: 'center' }, brand: { color: colors.muted, fontSize: 12, marginBottom: 5 }, compare: { flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderColor: colors.line, paddingTop: 11 }, compareLabel: { color: colors.muted, fontSize: 13, fontWeight: '700' }, compareValue: { color: colors.ink, fontSize: 22, fontWeight: '800', marginTop: 4 }, empty: { alignItems: 'center', gap: 9, padding: 24 }, excluded: { backgroundColor: colors.blueBg }, warning: { backgroundColor: colors.amberBg, flexDirection: 'row', gap: 9, alignItems: 'flex-start' }, warningText: { flex: 1, color: colors.amberInk, fontSize: 14, lineHeight: 21 }, reasons: { gap: 3, borderTopWidth: 1, borderColor: colors.line, paddingTop: 10 }, reasonText: { color: colors.amberInk, fontSize: 13, lineHeight: 20 }, error: { backgroundColor: colors.redBg, gap: 9 }, errorText: { color: colors.red, fontSize: 12, lineHeight: 17 } });
+const st = StyleSheet.create({
+  context: { flexDirection: 'row', gap: 11, alignItems: 'flex-start', backgroundColor: colors.canvasSoft },
+  contextIcon: { width: 40, height: 40, borderRadius: radius.chip, backgroundColor: colors.lavender, alignItems: 'center', justifyContent: 'center' },
+  title: { color: colors.ink, fontSize: 17, lineHeight: 24, fontWeight: '800' },
+  copy: { ...typography.body, color: colors.muted, marginTop: 4 },
+  summary: { gap: 9 },
+  note: { ...typography.meta, color: colors.subtle },
+  product: { gap: 14 },
+  productTop: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 12 },
+  food: { width: 44, height: 44, borderRadius: radius.tile, backgroundColor: colors.lavender, alignItems: 'center', justifyContent: 'center' },
+  brand: { ...typography.meta, color: colors.muted, marginBottom: 4 },
+  compare: { flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderColor: colors.line, paddingTop: 12 },
+  compareLabel: { color: colors.muted, ...typography.meta, fontWeight: '700' },
+  compareValue: { color: colors.ink, fontSize: 22, lineHeight: 28, fontWeight: '800', marginTop: 4 },
+  empty: { alignItems: 'center', gap: 9, padding: 24 },
+  excluded: { backgroundColor: colors.blueBg },
+  warning: { backgroundColor: colors.amberBg, flexDirection: 'row', gap: 9, alignItems: 'flex-start' },
+  warningText: { flex: 1, color: colors.amberInk, ...typography.body },
+  reasons: { gap: 4, borderTopWidth: 1, borderColor: colors.line, paddingTop: 10 },
+  reasonText: { color: colors.amberInk, ...typography.meta },
+  error: { backgroundColor: colors.redBg, gap: 9 },
+  errorText: { ...typography.meta, color: colors.red },
+});

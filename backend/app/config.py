@@ -32,6 +32,16 @@ class Settings(BaseSettings):
     report_max_tokens: int = Field(default=3072, ge=128, le=8192)
     report_max_bytes: int = Field(default=10 * 1024 * 1024, ge=1024)
     report_max_pages: int = Field(default=5, ge=1, le=20)
+    # Drafting a short ingredient list is a small text call, but the configured model reasons
+    # before it answers, so the output budget must cover the reasoning trace plus the JSON.
+    dish_draft_timeout: float = Field(default=45, gt=0, le=120)
+    dish_draft_max_tokens: int = Field(default=3072, ge=128, le=8192)
+    # Live Food.com recipe search. The actor charges per returned result, so
+    # recipes_live_max_items is the spend cap and recipes_live_timeout_seconds
+    # bounds the wall clock; both are enforced in app/services/recipes_live.py.
+    recipes_live_enabled: bool = True
+    recipes_live_max_items: int = Field(default=5, ge=1, le=20)
+    recipes_live_timeout_seconds: int = Field(default=120, ge=10, le=300)
     # Per-process token-bucket rate limiting. Limits are resolved per request, so
     # changing them (or RATE_LIMIT_ENABLED) takes effect without a rebuild.
     rate_limit_enabled: bool = True
@@ -40,6 +50,8 @@ class Settings(BaseSettings):
     rate_limit_report_extract_per_minute: int = Field(default=10, ge=1, le=10000)
     rate_limit_provider_reads_per_minute: int = Field(default=30, ge=1, le=10000)
     rate_limit_recommendations_per_minute: int = Field(default=20, ge=1, le=10000)
+    rate_limit_dish_draft_per_minute: int = Field(default=10, ge=1, le=10000)
+    rate_limit_recipes_live_per_minute: int = Field(default=5, ge=1, le=10000)
     # Reject any request body larger than this before a route can buffer it.
     max_body_bytes: int = Field(default=6 * 1024 * 1024, ge=1024)
     log_level: str = "INFO"

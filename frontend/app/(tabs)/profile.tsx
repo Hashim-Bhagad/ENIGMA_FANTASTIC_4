@@ -5,14 +5,14 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Button, Card, PageHeader, Pill, Screen, SectionTitle } from '@/src/components/ui';
 import { api, ConditionInfo, ConditionRegistry, conditionLabel, EU_ALLERGENS, Sex, AgeBand } from '@/src/api/client';
 import { useApp } from '@/src/state/AppContext';
-import { colors, radius } from '@/src/theme';
+import { colors, radius, typography } from '@/src/theme';
 
 const SEX_OPTIONS: { value: Sex; label: string }[] = [
   { value: 'female', label: 'Female' }, { value: 'male', label: 'Male' }, { value: 'unspecified', label: 'Prefer not to say' },
 ];
 const AGE_BANDS: { value: AgeBand; label: string }[] = [
-  { value: 'under_18', label: 'Under 18' }, { value: '18_29', label: '18–29' }, { value: '30_44', label: '30–44' },
-  { value: '45_59', label: '45–59' }, { value: '60_74', label: '60–74' }, { value: '75_plus', label: '75 and over' },
+  { value: 'under_18', label: 'Under 18' }, { value: '18_29', label: '18-29' }, { value: '30_44', label: '30-44' },
+  { value: '45_59', label: '45-59' }, { value: '60_74', label: '60-74' }, { value: '75_plus', label: '75 and over' },
   { value: 'unspecified', label: 'Prefer not to say' },
 ];
 
@@ -69,7 +69,7 @@ export default function ProfileScreen() {
   const setAgeBand = (value: AgeBand) => { setProfileDraft({ ...profileDraft, age_band: profileDraft.age_band === value ? 'unspecified' : value }); setSaved(false); };
 
   return <Screen>
-    <PageHeader eyebrow="Personal details" title="Your profile" subtitle="These saved settings are used for your product checks." />
+    <PageHeader title="Your profile" subtitle="These saved settings are used for your product checks." />
     <Card style={st.identity}><View style={st.avatar}><Text style={st.avatarText}>{(email || 'A').slice(0, 1).toUpperCase()}</Text></View><View style={{ flex: 1 }}><Text style={st.name}>{email.split('@')[0] || 'Your account'}</Text><Text style={st.email}>{email}</Text></View><Pill label={profile ? `SAVED · V${profile.version}` : 'SETUP REQUIRED'} tone={profile ? 'green' : 'amber'} /></Card>
     {!profile && <Card style={st.notice}><Text style={st.hintText}>Choose the conditions and restrictions you want to track, then save your profile to finish account setup.</Text></Card>}
     <Card style={st.card}>
@@ -116,10 +116,31 @@ export default function ProfileScreen() {
 }
 
 const st = StyleSheet.create({
-  identity: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 15 }, avatar: { width: 48, height: 48, backgroundColor: colors.primary, borderRadius: radius.avatar, alignItems: 'center', justifyContent: 'center' }, avatarText: { color: colors.onPrimary, fontSize: 20, fontWeight: '800' }, name: { color: colors.ink, fontSize: 14, fontWeight: '800' }, email: { color: colors.muted, fontSize: 10, marginTop: 4 },
-  card: { gap: 12 }, label: { color: colors.muted, letterSpacing: 1, fontSize: 9, fontWeight: '800', marginTop: 4 }, help: { color: colors.muted, fontSize: 11, lineHeight: 16, marginTop: -6 }, chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, chip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 11, paddingVertical: 9, borderRadius: radius.pill, backgroundColor: colors.canvas }, chipActive: { backgroundColor: colors.redBg }, chipText: { color: colors.muted, fontSize: 11, fontWeight: '700' }, chipTextActive: { color: colors.red }, chipSelected: { backgroundColor: colors.lavender }, chipSelectedText: { color: colors.primary }, chipUnsupported: { backgroundColor: colors.amberBg }, chipTextUnsupported: { color: colors.amberInk, fontSize: 11, fontWeight: '700' }, conditionNote: { color: colors.subtle, fontSize: 10, lineHeight: 14 },
-  exclusion: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 11, paddingVertical: 9, borderRadius: radius.pill, backgroundColor: colors.lavenderSoft }, exclusionText: { color: colors.ink, fontSize: 11, fontWeight: '700' }, exclusionRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2 },
+  identity: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 16 },
+  avatar: { width: 48, height: 48, backgroundColor: colors.primary, borderRadius: radius.avatar, alignItems: 'center', justifyContent: 'center' },
+  avatarText: { color: colors.onPrimary, fontSize: 20, fontWeight: '800' },
+  name: { ...typography.cardTitle, color: colors.ink }, email: { ...typography.meta, color: colors.muted, marginTop: 3 },
+  card: { gap: 14 },
+  label: { ...typography.label, color: colors.muted, marginTop: 4 },
+  help: { ...typography.meta, color: colors.muted },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  chip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 11, borderRadius: radius.pill, backgroundColor: colors.canvas },
+  chipActive: { backgroundColor: colors.redBg }, chipText: { color: colors.muted, ...typography.meta, fontWeight: '700' },
+  chipTextActive: { color: colors.red }, chipSelected: { backgroundColor: colors.lavender }, chipSelectedText: { color: colors.primary },
+  chipUnsupported: { backgroundColor: colors.amberBg }, chipTextUnsupported: { color: colors.amberInk, ...typography.meta, fontWeight: '700' },
+  conditionNote: { ...typography.caption, color: colors.subtle },
+  exclusion: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 11, borderRadius: radius.pill, backgroundColor: colors.lavenderSoft },
+  exclusionText: { color: colors.ink, ...typography.meta, fontWeight: '700' }, exclusionRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2 },
   links: { flexDirection: 'row', flexWrap: 'wrap', gap: 9 },
-  addLimit: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start' }, addText: { color: colors.primary, fontSize: 11, fontWeight: '700' }, limitEditor: { gap: 7 }, inputBox: { minHeight: 46, borderRadius: radius.input, borderWidth: 1, borderColor: colors.line, paddingHorizontal: 12, color: colors.ink, fontSize: 12, backgroundColor: colors.surface }, preference: { flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderColor: colors.line, paddingTop: 13 }, limitTitle: { color: colors.ink, fontSize: 12, fontWeight: '700' }, toggle: { width: 41, height: 24, borderRadius: radius.pill, backgroundColor: colors.track, padding: 3, justifyContent: 'center' }, toggleOn: { backgroundColor: colors.primary }, knob: { width: 18, height: 18, borderRadius: 9, backgroundColor: colors.surface }, knobOn: { alignSelf: 'flex-end' },
-  signOut: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 8 }, signOutText: { color: colors.muted, fontSize: 12, fontWeight: '700' }, disclaimer: { textAlign: 'center', color: colors.subtle, fontSize: 10, lineHeight: 15, paddingHorizontal: 15 }, notice: { backgroundColor: colors.amberBg }, hintText: { color: colors.amberInk, fontSize: 11, lineHeight: 15 }, error: { color: colors.red, fontSize: 12, lineHeight: 17 }, inlineError: { gap: 8 },
+  addLimit: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', minHeight: 44 }, addText: { color: colors.primary, ...typography.meta, fontWeight: '700' },
+  limitEditor: { gap: 7 },
+  inputBox: { minHeight: 50, borderRadius: radius.control, borderWidth: 1, borderColor: colors.stroke, paddingHorizontal: 14, color: colors.ink, fontSize: 16, backgroundColor: colors.surface },
+  preference: { flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderColor: colors.line, paddingTop: 14 },
+  limitTitle: { color: colors.ink, ...typography.bodyStrong },
+  toggle: { width: 44, height: 26, borderRadius: radius.pill, backgroundColor: colors.track, padding: 3, justifyContent: 'center' }, toggleOn: { backgroundColor: colors.primary },
+  knob: { width: 20, height: 20, borderRadius: 10, backgroundColor: colors.surface }, knobOn: { alignSelf: 'flex-end' },
+  signOut: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 12 }, signOutText: { color: colors.muted, ...typography.meta, fontWeight: '700' },
+  disclaimer: { textAlign: 'center', ...typography.caption, color: colors.subtle, paddingHorizontal: 15 },
+  notice: { backgroundColor: colors.amberBg }, hintText: { ...typography.meta, color: colors.amberInk },
+  error: { ...typography.meta, color: colors.red }, inlineError: { gap: 8 },
 });

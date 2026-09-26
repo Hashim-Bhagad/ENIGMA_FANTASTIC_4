@@ -26,7 +26,7 @@ Verification is reproduced at the end; nothing here is claimed from reading alon
 - **Rate limiting is per process.** Single uvicorn worker today; a shared store is required before running multiple replicas.
 - **No idempotency keys** on assessments or recommendations. Only `PUT /api/profiles/me` is retry-safe (an identical payload returns the current version).
 - **The verified replacement tier still needs operator-reviewed records.** Community records now surface in `needs_review`, not as verified candidates. `backend/data/demo_products.json` holds four cracker fixtures.
-- **Recipe templates are read-only and empty until reviewed rows exist.** `GET /api/recipes` returns an explanatory empty page; the cooked-meal flow works without it.
+- **Recipe templates are read-only until reviewed rows exist.** `GET /api/recipes` returns an explanatory empty page when nothing matches, and can additionally fetch a bounded, pay-per-result Food.com run per new query as `imported_source` rows (labelled as unreviewed, source note attached, never merged into the reviewed set); the cooked-meal flow works without it.
 - **Dish estimates cover label nutrients only.** IFCT available carbohydrate and free sugars are deliberately not mapped to label totals; the estimate says so.
 - **Frontend tests cover the transport and session only.** No component or end-to-end browser suite is committed.
 - **`backend/.env` still holds real-looking provider keys.** They are gitignored and excluded from Docker builds, but rotate them before sharing the folder. Stale `GEMINI_*` entries were removed.

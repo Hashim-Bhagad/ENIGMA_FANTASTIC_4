@@ -79,6 +79,8 @@ per-process (the app assumes a single Uvicorn worker) and can be disabled entire
 | `POST /api/labels/extract` | 10 / minute | user |
 | Provider calls (`GET /api/products/barcode/{barcode}`, `GET /api/products/search/live`, `GET /api/products/search`, `POST /api/verification/fssai`) | 30 / minute | user |
 | `POST /api/recommendations` | 20 / minute | user |
+| `POST /api/dishes/draft` | 10 / minute | user |
+| Live recipe search (`GET /api/recipes`, only when it starts an actor run) | 5 / minute | user |
 
 A middleware enforces a maximum request body of `MAX_BODY_BYTES` (default 6 MiB,
 `6291456`). A declared `Content-Length` over the cap is rejected immediately with 413;
@@ -104,6 +106,7 @@ cap for the `file` upload inside that limit. Provider-touching product reads als
 | Composition reference | `GET /api/reference-foods?q=&limit=` | IFCT ingredient reference, separate from branded labels; `limit` is 1–30, default 10. |
 | Read a photo | `POST /api/labels/extract` | Authenticated JPEG/PNG multipart upload named `file`; returns observations for user correction and confirmation. |
 | Cooked-meal options | `GET /api/dishes/options` | Cooking-note options plus the estimator's assumptions and unknowns. |
+| Draft a dish's ingredients | `POST /api/dishes/draft` | Model-drafted starting ingredient list for a dish name; labelled as a draft, editable, and unchecked. |
 | Assess a cooked meal | `POST /api/dishes/assess` | Estimates dish composition from matched IFCT ingredients and returns an assessment. |
 | Assess | `POST /api/assessments` | Requires the current `profile_id`, `profile_version`, and reviewed `food`; optional `portion` is grams for 100g or millilitres for 100ml. |
 | Compare alternatives | `POST /api/recommendations` | Uses `assessment_id` and optional preferences; saves the comparison run. |
@@ -158,6 +161,28 @@ optional `fallback_reason`, and a `message`.
 `GET /api/dishes/options` returns `cooking_notes` (each with `code`, `label`, `detail`,
 `next_step`), the estimator's `unknowns`, and its `assumptions`.
 
+`POST /api/dishes/draft` takes `{"name": "..."}` (1–120 characters) and returns a model's
+**starting ingredient list** for one common version of that dish:
+
+- `ingredients` — `text` plus a usual amount for the whole dish in `grams`, or `null` when
+  the model was unsure. An unsure amount is never filled in with a guess.
+- `cooking_notes` — only codes from the recorded `COOKING_NOTES` vocabulary.
+- `source` — `kind: "model_draft"` with the model id, so a draft is never mistaken for a
+  reviewed recipe template.
+- `warnings` and `message` — state plainly that the model drafted the list from the dish
+  name, that a real version varies by cook and brand, and that every line must be corrected
+  before the check.
+
+The list is a suggestion written from the name alone: it is not a recipe, not a reviewed
+template and not a measurement, and nothing is assessed until the user corrects the lines and
+runs `POST /api/dishes/assess`. Cleaning is deterministic — trim, drop empty lines, dedupe,
+cap at 15 lines, and drop note codes outside the vocabulary with a warning — and no nutrient
+arithmetic happens here. A provider failure, or output with no usable ingredient line,
+returns HTTP 503 `provider_unavailable` with guidance to type the ingredients instead. The
+call uses `DISH_DRAFT_TIMEOUT` (default 45s) and `DISH_DRAFT_MAX_TOKENS` (default 3072,
+enough to cover the configured reasoning model's trace plus the JSON), and is limited by
+`RATE_LIMIT_DISH_DRAFT_PER_MINUTE`.
+
 `POST /api/dishes/assess` takes a `DishRequest` (`profile_id`, `profile_version`, `name`,
 one or more `ingredients`, optional `cooking_notes`, `declarations_confirmed`, optional
 `portion_g`) and returns the saved `id` plus:
@@ -185,6 +210,48 @@ A deprecated compatibility alias, `POST /api/assessments/dish`, still runs the s
 but returns the assessment-record envelope (`result.dish` holds the dish block). New clients
 should use `POST /api/dishes/assess`.
 
+## Recipe catalogue
+
+`GET /api/recipes?q=&limit=` lists two kinds of row, and they are never confused with each
+other:
+
+- `validated` — reviewed ingredient templates (this set is empty until an operator reviews
+  rows). `review_status` is `validated_ingredients_unverified_for_serving`.
+- `imported_source` — Food.com rows fetched from the paid Apify actor, kept as the source
+  wrote them. `review_status` is `imported_source`, `source_note` and `warnings` both say
+  "Food.com source list — ingredients as written; amounts and preparation not confirmed",
+  and `declarations_confirmed` stays `false`. `pending_count` counts them as awaiting review.
+
+Imported rows are stored as `RecipeRecord.raw = {"ingredients": [{"text": ..., "grams": ...}],
+"cooking_notes": []}`. A `grams` value appears **only** when the source line states a mass
+(`g`/`kg`/`oz`/`lb` with a numeric quantity); "1 cup rice" and "salt, to taste" stay `null`,
+and no weight is ever converted from a volume, a count or a spoon. No nutrition field is
+served and no arithmetic is done on these rows. Rows without a name, without ingredient
+lines, or with more than 40 lines are skipped with a reason (reported as `skipped_records`)
+instead of aborting the batch.
+
+Live fetching is off by default only in the sense that it needs a token: it runs when the
+local result set is thin, `RECIPES_LIVE_ENABLED` is true and `APIFY_TOKEN` is set. It is
+rate-limited by `RATE_LIMIT_RECIPES_LIVE_PER_MINUTE` (default 5, user) **on the attempt
+only**, so cached reads and type-ahead are never throttled. `raw["source"]` records the
+provider, actor, run id, dataset id, query, the source URL and the retrieval time. The same
+normalised query is served from the local cache afterwards and never starts a second run.
+
+The response carries `live_status`:
+
+| `live_status` | Meaning |
+| --- | --- |
+| `cached` | Rows were served from storage; no actor run was needed or started. |
+| `fetched` | An actor run finished and added rows to this response. |
+| `disabled` | A run was needed but `RECIPES_LIVE_ENABLED` is false or no `APIFY_TOKEN` is set. |
+| `unavailable` | A run was attempted and failed; the cached or empty state is returned with a plain message, never a 5xx. |
+
+`GET /api/recipes/{id}` serves either kind by id. The actor is pay-per-result, so
+`RECIPES_LIVE_MAX_ITEMS` (default 5, 1–20) caps the spend per run and
+`RECIPES_LIVE_TIMEOUT_SECONDS` (default 120, 10–300) caps the wall clock; the run's own
+timeout is set server-side as well. Imported rows are never promoted to `validated` by this
+path — that requires review.
+
 ## Hidden ingredient names
 
 `app/services/ingredient_taxonomy.py` holds a versioned vocabulary. Unicode and case normalization, whole-phrase boundaries, and longest-match priority recognize aliases while retaining the exact evidence and offsets. Assessment results expose `ingredient_findings` and `ingredient_taxonomy_version`.
@@ -210,7 +277,7 @@ docker compose --env-file backend/.env exec api python -m app.importers apify --
 
 To add real replacement candidates, inspect their physical labels and create a JSON list of `{"source_id": "stable-catalog-id", "food": {...}}` records. `food` follows the `/docs` observation schema, uses `source.kind="manual"`, includes a reviewed category, and has both completeness flags set after checking the ingredient and advisory panels. Then run `uv --directory backend run python -m app.importers reviewed-products --file /path/to/reviewed-products.json`. The importer validates the entire file before writing and updates existing stable IDs. Community lookups do not overwrite these reviewed snapshots. A reviewed snapshot still needs replacement when its package variant or formulation changes.
 
-IFCT contains 542 reference foods. Its units are read from the dataset metadata; available carbohydrate and free sugar are kept distinct from total label carbohydrate and sugars. Food.com records can be staged with `--source recipes`; their schema and quantities require review before any dish assessment. Barcode List has no validated structured API and is not used as a nutrition source. Source verification details are in `../docs/source-verification/`. Data licensing is in `../NOTICE`.
+IFCT contains 542 reference foods. Its units are read from the dataset metadata; available carbohydrate and free sugar are kept distinct from total label carbohydrate and sugars. Food.com records can be staged with `--source recipes`; their schema and quantities require review before any dish assessment. `GET /api/recipes` can also stage one bounded Food.com run per new query as `imported_source` rows — those stay unreviewed, carry the source note, and are never merged into the reviewed set (see "Recipe catalogue"). Barcode List has no validated structured API and is not used as a nutrition source. Source verification details are in `../docs/source-verification/`. Data licensing is in `../NOTICE`.
 
 ## AI boundaries and third-party data
 
@@ -224,6 +291,9 @@ Data sent to third parties is deliberately narrow:
   scored, the product name, category, and ingredient text. It never receives identity,
   conditions, allergies, limits, or assessment IDs.
 - **TheVerifico** receives only the FSSAI license number submitted for verification.
+- **Apify** (the Food.com scraper actor) receives the recipe search keyword only, and only
+  when the live search actually runs. It never receives identity, conditions, allergies,
+  limits, or saved history.
 
 Both production adapters passed a bounded synthetic live contract check on 2026-09-26. See `scripts/provider-live-verification.md` for evidence and the opt-in repeat command. This checks connectivity and output shape, not accuracy on real food packaging. Normal photo extraction uses `LABEL_MAX_TOKENS=2048` by default; the synthetic verifier uses a smaller cap. `.dockerignore` keeps credentials, the host virtual environment, and downloaded raw data out of the Docker build context.
 

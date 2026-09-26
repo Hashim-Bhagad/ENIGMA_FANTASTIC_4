@@ -5,7 +5,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Button, Card, PageHeader, Pill, Screen, SectionTitle } from '@/src/components/ui';
 import { api, avoidSeverityLabel, avoidSeverityTone, confidenceLabel, evidenceReportLabel, formatEquivalent, formatEvidence, formatMeasuredLine, intakeBaselineLine, intakeProposedLine, IntakePlan, IntakeTarget } from '@/src/api/client';
 import { useApp } from '@/src/state/AppContext';
-import { colors, radius } from '@/src/theme';
+import { colors, radius, typography } from '@/src/theme';
 
 function nutrientDisplay(nutrient: string, plan: IntakePlan | null): string {
   return plan?.targets.find(item => item.nutrient === nutrient)?.label ?? nutrient.replaceAll('_', ' ');
@@ -50,14 +50,14 @@ export default function IntakeScreen() {
   const saving = busyFor('profile');
 
   if (!profile) return <Screen>
-    <PageHeader eyebrow="Personalised guidance" title="Intake plan" subtitle="Proposals built from your records." back />
+    <PageHeader title="Intake plan" subtitle="Proposals built from your records." back />
     <Card style={st.notice}><MaterialCommunityIcons name="account-alert-outline" size={19} color={colors.amber} /><Text style={st.noticeText}>Save a profile first. The plan needs your recorded conditions, sex and age band before it can propose anything.</Text></Card>
     <Button title="Go to your profile" icon="account-edit-outline" onPress={() => router.push('/(tabs)/profile')} />
   </Screen>;
 
   return <Screen>
-    <PageHeader eyebrow="Personalised guidance" title="Intake plan" subtitle="Each line is a proposal until you accept it. Accepting records it as a limit in your saved profile." back />
-    <Card style={st.notice}><MaterialCommunityIcons name="information-outline" size={18} color={colors.primary} /><Text style={st.noticeText}>This prototype does not diagnose. Values read from reports can be wrong, and a proposal is not medical advice. Entries marked “clinician review required” have no accept button on purpose — bring them to a clinician.</Text></Card>
+    <PageHeader title="Intake plan" subtitle="Each line is a proposal until you accept it. Accepting records it as a limit in your saved profile." back />
+    <Card style={st.notice}><MaterialCommunityIcons name="information-outline" size={18} color={colors.primary} /><Text style={st.noticeText}>This prototype does not diagnose. Values read from reports can be wrong, and a proposal is not medical advice. Entries marked “clinician review required” have no accept button on purpose: bring them to a clinician.</Text></Card>
     <View style={st.links}><Pressable accessibilityRole="link" onPress={() => router.push('/reports')}><Text style={st.link}>Reports used for this plan</Text></Pressable><Text style={st.cardSub}>{plan ? `${plan.reports_used.length} confirmed report${plan.reports_used.length === 1 ? '' : 's'} referenced` : 'No plan loaded yet'}</Text></View>
 
     {planError ? <Card style={st.errorCard}><Text accessibilityRole="alert" style={st.errorText}>{planError}</Text><Button title="Retry" compact secondary onPress={() => void loadPlan()} /></Card> : null}
@@ -124,18 +124,44 @@ export default function IntakeScreen() {
 }
 
 const st = StyleSheet.create({
-  notice: { flexDirection: 'row', alignItems: 'flex-start', gap: 9, backgroundColor: colors.lavender }, noticeText: { flex: 1, color: colors.purpleInk, fontSize: 11, lineHeight: 16 },
-  links: { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap' }, link: { color: colors.primary, fontSize: 11, fontWeight: '700', paddingVertical: 4 },
-  target: { gap: 9 }, targetHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 9 }, targetTitle: { color: colors.ink, fontSize: 15, lineHeight: 21, fontWeight: '800' }, pills: { alignItems: 'flex-end', gap: 5 },
-  baseline: { color: colors.muted, fontSize: 11, lineHeight: 16 }, proposed: { color: colors.ink, fontSize: 13, lineHeight: 18, fontWeight: '700' }, basis: { color: colors.muted, fontSize: 11, lineHeight: 16 },
-  headline: { color: colors.primaryDark, fontSize: 18, lineHeight: 24, fontWeight: '800' }, subBlock: { gap: 4, borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 8 },
-  avoidItem: { gap: 3, paddingVertical: 6 }, avoidLabel: { color: colors.ink, fontSize: 13, lineHeight: 18, fontWeight: '800' }, avoidMeta: { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
-  clinician: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: colors.amberBg, borderRadius: radius.chip, padding: 10 }, clinicianText: { flex: 1, color: colors.amberInk, fontSize: 11, lineHeight: 15 },
-  note: { color: colors.subtle, fontSize: 10, lineHeight: 14 }, evidence: { borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 8, gap: 4 }, evidenceHead: { flexDirection: 'row', alignItems: 'center', gap: 8 }, evidenceText: { color: colors.ink, fontSize: 11, lineHeight: 16 },
-  questions: { gap: 3, borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 8 }, fieldLabel: { color: colors.muted, letterSpacing: 1, fontSize: 9, fontWeight: '800' },
-  condition: { gap: 7 }, notes: { gap: 4 },
-  accepted: { flexDirection: 'row', alignItems: 'flex-start', gap: 9, backgroundColor: colors.greenBg }, acceptedText: { flex: 1, color: colors.green, fontSize: 11, lineHeight: 16, fontWeight: '700' },
-  empty: { alignItems: 'center', gap: 7 }, cardTitle: { color: colors.ink, fontSize: 15, fontWeight: '700' }, cardSub: { color: colors.muted, fontSize: 11, lineHeight: 16 },
-  recorded: { gap: 9 }, recordRow: { flexDirection: 'row', alignItems: 'center', gap: 10, borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 9 }, recordTitle: { color: colors.ink, fontSize: 12, fontWeight: '700' }, recordValue: { color: colors.primary, fontSize: 14, fontWeight: '800' },
-  errorCard: { gap: 9, backgroundColor: colors.redBg }, errorText: { color: colors.red, fontSize: 12, lineHeight: 17 }, error: { color: colors.red, fontSize: 12, lineHeight: 17 }, coverage: { textAlign: 'center', color: colors.subtle, fontSize: 10, lineHeight: 15, paddingHorizontal: 15 }, disclaimer: { textAlign: 'center', color: colors.subtle, fontSize: 10, lineHeight: 15, paddingHorizontal: 15 },
+  notice: { flexDirection: 'row', alignItems: 'flex-start', gap: 9, backgroundColor: colors.lavender },
+  noticeText: { flex: 1, color: colors.purpleInk, ...typography.meta },
+  links: { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
+  link: { color: colors.primary, ...typography.meta, fontWeight: '700', paddingVertical: 6 },
+  target: { gap: 10 },
+  targetHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 9 },
+  targetTitle: { color: colors.ink, fontSize: 15, lineHeight: 22, fontWeight: '800' },
+  pills: { alignItems: 'flex-end', gap: 5 },
+  baseline: { ...typography.meta, color: colors.muted },
+  proposed: { color: colors.ink, fontSize: 15, lineHeight: 22, fontWeight: '700' },
+  basis: { ...typography.meta, color: colors.muted },
+  headline: { color: colors.primaryDark, fontSize: 20, lineHeight: 26, fontWeight: '800' },
+  subBlock: { gap: 4, borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 10 },
+  avoidItem: { gap: 3, paddingVertical: 6 },
+  avoidLabel: { color: colors.ink, fontSize: 14, lineHeight: 20, fontWeight: '800' },
+  avoidMeta: { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
+  clinician: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: colors.amberBg, borderRadius: radius.chip, padding: 12 },
+  clinicianText: { flex: 1, color: colors.amberInk, ...typography.meta },
+  note: { ...typography.caption, color: colors.subtle },
+  evidence: { borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 10, gap: 4 },
+  evidenceHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  evidenceText: { color: colors.ink, ...typography.meta },
+  questions: { gap: 3, borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 10 },
+  fieldLabel: { ...typography.label, color: colors.muted },
+  condition: { gap: 7 },
+  notes: { gap: 4 },
+  accepted: { flexDirection: 'row', alignItems: 'flex-start', gap: 9, backgroundColor: colors.greenBg },
+  acceptedText: { flex: 1, color: colors.green, ...typography.meta, fontWeight: '700' },
+  empty: { alignItems: 'center', gap: 7 },
+  cardTitle: { color: colors.ink, ...typography.cardTitle },
+  cardSub: { ...typography.meta, color: colors.muted },
+  recorded: { gap: 10 },
+  recordRow: { flexDirection: 'row', alignItems: 'center', gap: 10, borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 10 },
+  recordTitle: { color: colors.ink, fontSize: 14, lineHeight: 20, fontWeight: '700' },
+  recordValue: { color: colors.primary, fontSize: 16, fontWeight: '800' },
+  errorCard: { gap: 9, backgroundColor: colors.redBg },
+  errorText: { ...typography.meta, color: colors.red },
+  error: { ...typography.meta, color: colors.red },
+  coverage: { textAlign: 'center', ...typography.caption, color: colors.subtle, paddingHorizontal: 15 },
+  disclaimer: { textAlign: 'center', ...typography.caption, color: colors.subtle, paddingHorizontal: 15 },
 });
