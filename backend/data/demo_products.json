@@ -1,0 +1,70 @@
+[
+  {
+    "category": "crackers",
+    "basis": "100g",
+    "ingredients_complete": true,
+    "advisories_complete": true,
+    "advisories_text": "",
+    "source": {
+      "kind": "demo",
+      "reference": "Synthetic demonstration fixture; not a commercial product label"
+    },
+    "name": "DEMO: salted wheat crackers",
+    "ingredients_text": "Wheat flour, sunflower oil, salt",
+    "nutrients": {
+      "sodium_mg": 800,
+      "carbohydrates_g": 60
+    }
+  },
+  {
+    "category": "crackers",
+    "basis": "100g",
+    "ingredients_complete": true,
+    "advisories_complete": true,
+    "advisories_text": "",
+    "source": {
+      "kind": "demo",
+      "reference": "Synthetic demonstration fixture; not a commercial product label"
+    },
+    "name": "DEMO: plain rice crackers",
+    "ingredients_text": "Rice flour, sunflower oil, salt",
+    "nutrients": {
+      "sodium_mg": 200,
+      "carbohydrates_g": 55
+    }
+  },
+  {
+    "category": "crackers",
+    "basis": "100g",
+    "ingredients_complete": true,
+    "advisories_complete": true,
+    "advisories_text": "",
+    "source": {
+      "kind": "demo",
+      "reference": "Synthetic demonstration fixture; not a commercial product label"
+    },
+    "name": "DEMO: mild rice crackers",
+    "ingredients_text": "Rice flour, sunflower oil, salt",
+    "nutrients": {
+      "sodium_mg": 200,
+      "carbohydrates_g": 55
+    }
+  },
+  {
+    "category": "crackers",
+    "basis": "100g",
+    "ingredients_complete": true,
+    "advisories_complete": true,
+    "advisories_text": "",
+    "source": {
+      "kind": "demo",
+      "reference": "Synthetic demonstration fixture; not a commercial product label"
+    },
+    "name": "DEMO: milk crackers",
+    "ingredients_text": "Rice flour, milk powder, salt",
+    "nutrients": {
+      "sodium_mg": 100,
+      "carbohydrates_g": 50
+    }
+  }
+]
