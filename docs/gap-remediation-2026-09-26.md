@@ -13,7 +13,7 @@ Verification is reproduced at the end; nothing here is claimed from reading alon
 | 4 | Unauthenticated GETs wrote to the shared catalog | Every `/api/*` route requires a bearer token except `POST /api/auth/register` and `POST /api/auth/login`; provider reads send `Cache-Control: no-store`; catalog updates never re-source a record across kinds | `app/api/*.py`, `app/catalog.py`, `tests/test_api.py` |
 | 5 | No abuse controls on paid providers or login | Per-scope token buckets (`auth` 10/min per IP, `labels/extract` 10/min per user, provider reads 30/min, recommendations 20/min), `429` + `Retry-After` + code `rate_limited`, request-body cap (6 MiB default) with a bounded drain so clients read the 413 instead of a reset connection | `app/rate_limit.py`, `app/main.py`, `tests/test_api.py`, live checks |
 | 6 | No logging, message-only errors | Structured logging for provider failures, rate-limit rejections and unexpected errors (no secrets, no bodies); stable `code` next to FastAPI's `detail` for every error response | `app/errors.py`, `app/main.py`, `app/integrations/*` |
-| 7 | Matching used two normalization regimes and dropped same-subtype aliases | Allergen/exclusion matching shares the taxonomy normalizer (NFKC, casefolding, dash/quote mapping, span-preserving), and same-subtype alias variants are mapped | `app/services/ingredient_taxonomy.py`, `app/services/assessment.py`, `tests/test_assessment.py` |
+| 7 | Matching used two normalization regimes and dropped same-subtype aliases | Allergen/exclusion matching now searches the same normalized view as ingredient matching (NFKC, casefolding, dash/quote mapping, whitespace collapsing) with offsets mapped back for negation checks; family aliases (`sugar alcohol`, `polyol`) are marked as umbrella terms so an exclusion of the family covers its members while a single member (`xylitol`) still does not | `app/services/ingredient_taxonomy.py`, `app/services/assessment.py`, tests `test_allergen_matching_uses_the_shared_normalized_view`, `test_umbrella_exclusion_covers_family_members_but_single_member_does_not` |
 | 8 | One malformed Apify row aborted the import | Per-record validation with skip-and-count summaries; barcodes validated against the schema pattern; no `str()` of dicts/lists | `app/integrations/off.py`, `app/importers.py`, `tests/test_sources.py` |
 | 9 | Provenance reported a confirmed-absent advisory as "missing" | Field status now distinguishes `available`, `confirmed_absent`, `missing` and `unusable`, and carries the completeness flags | `app/services/provenance.py`, `tests/test_provenance.py` |
 | 10 | Silent profile-save failures, no 401 recovery, no timeouts, history never refreshed, 50-row cap | Save errors surface and rethrow; `profile_version_stale` re-fetches the profile and keeps the draft; a 401 anywhere clears the session; requests have timeouts (15 s, 60 s for label extraction); the assessment refresh updates history; history pages with `offset`/`total` | `frontend/src/api/client.ts`, `frontend/src/state/AppContext.tsx`, `frontend/src/api/*.test.ts` |
@@ -35,9 +35,9 @@ Verification is reproduced at the end; nothing here is claimed from reading alon
 
 ```sh
 cd backend
-uv run pytest -q                                        # 87 passed, 8 skipped
+uv run pytest -q                                        # 89 passed, 8 skipped
 uv run ruff check app tests scripts && uv run ruff format --check app tests scripts
-TEST_DATABASE_URL=postgresql+psycopg://dietary:<pw>@localhost:5433/dietary_test uv run pytest -q   # 95 passed
+TEST_DATABASE_URL=postgresql+psycopg://dietary:<pw>@localhost:5433/dietary_test uv run pytest -q   # 97 passed
 uv run python scripts/runtime_api_smoke.py              # result: passed
 cd ../frontend
 npx tsc --noEmit                                        # clean
