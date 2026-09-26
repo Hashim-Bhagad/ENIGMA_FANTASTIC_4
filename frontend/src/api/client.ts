@@ -3,7 +3,9 @@ import { colors } from '../theme';
 import { session } from './session';
 
 export type Nutrient = 'sodium_mg' | 'potassium_mg' | 'phosphorus_mg' | 'carbohydrates_g' | 'protein_g' | 'fat_g' | 'saturated_fat_g' | 'sugars_g' | 'fiber_g' | 'energy_kcal';
-export type Allergen = 'wheat' | 'milk' | 'eggs' | 'soy' | 'peanuts' | 'tree_nuts' | 'sesame' | 'fish' | 'shellfish';
+export type Allergen = 'wheat' | 'milk' | 'eggs' | 'soy' | 'peanuts' | 'tree_nuts' | 'sesame' | 'fish' | 'shellfish' | 'celery' | 'mustard' | 'lupin' | 'molluscs' | 'sulphites';
+export type Sex = 'female' | 'male' | 'unspecified';
+export type AgeBand = 'under_18' | '18_29' | '30_44' | '45_59' | '60_74' | '75_plus' | 'unspecified';
 export type FoodSourceKind = 'openfoodfacts' | 'apify_off' | 'manual' | 'label_extraction' | 'demo' | 'dish';
 export type FoodObservation = {
   name: string; brand: string | null; barcode: string | null; category: string | null;
@@ -13,7 +15,7 @@ export type FoodObservation = {
   nutrients: Partial<Record<Nutrient, number | null>>;
   source: { kind: FoodSourceKind; reference: string; retrieved_at?: string | null; warnings: string[]; model?: string | null; edited_fields?: string[] };
 };
-export type ProfileData = { conditions: string[]; allergies: Allergen[]; ingredient_exclusions: string[]; limits: { nutrient: Nutrient; maximum: number; scope: 'daily' | 'portion'; source: string }[]; goals: { nutrient: Nutrient; direction: 'lower' | 'higher' }[]; preferences: string };
+export type ProfileData = { conditions: string[]; allergies: Allergen[]; ingredient_exclusions: string[]; limits: { nutrient: Nutrient; maximum: number; scope: 'daily' | 'portion'; source: string }[]; goals: { nutrient: Nutrient; direction: 'lower' | 'higher' }[]; preferences: string; sex?: Sex; age_band?: AgeBand };
 export type SavedProfile = { id: string; version: number; data: ProfileData };
 
 /** A frontend view model for one searchable/look-up-able product row. */
@@ -101,6 +103,113 @@ export type CatalogResponse = { products: { id: string; food: FoodObservation; u
 export type Recipe = { id: string; name: string; ingredients: DishIngredient[]; source: Record<string, unknown>; review_status: string; warnings: string[] };
 export type RecipePage = { recipes: Recipe[]; message?: string; pending_count?: number };
 
+// --- Health reports and personal intake (mirrors the backend contract) -------------------
+export const NUTRIENTS: Nutrient[] = ['sodium_mg', 'potassium_mg', 'phosphorus_mg', 'carbohydrates_g', 'protein_g', 'fat_g', 'saturated_fat_g', 'sugars_g', 'fiber_g', 'energy_kcal'];
+
+/** Narrow an intake target's nutrient string to the recorded-limit vocabulary. */
+export function isNutrient(value: string): value is Nutrient {
+  return (NUTRIENTS as string[]).includes(value);
+}
+
+export type ReferenceSource = 'document' | 'standard' | 'unknown';
+export type ParameterStatus = 'low' | 'normal' | 'high' | 'unknown';
+export type GuidanceConfidence = 'established' | 'general_wellbeing' | 'clinician_only';
+export type ReportStatus = 'extracted' | 'confirmed';
+
+/** One measured value from a health report. `key` is the canonical lab parameter vocabulary. */
+export type LabParameter = {
+  key: string; label: string; value?: number | null; unit?: string | null;
+  reference_low?: number | null; reference_high?: number | null;
+  reference_source?: ReferenceSource; raw_text?: string | null; status?: ParameterStatus;
+};
+export type ReportConfirm = LabParameter;
+export type HealthReportResult = {
+  id: string; status: ReportStatus; collected_on?: string | null; parameters: LabParameter[];
+  abnormal_parameters: string[]; warnings: string[]; confirmation_required: boolean;
+  source: Record<string, unknown>; provider: Record<string, unknown>;
+};
+export type HealthReportSummary = {
+  id: string; status: ReportStatus; collected_on?: string | null;
+  parameter_count: number; abnormal_count: number; created_at: string;
+};
+export type HealthReportList = { reports: HealthReportSummary[]; total: number; limit: number; offset: number };
+export type HealthReportConfirmRequest = { parameters: ReportConfirm[]; collected_on?: string | null; note?: string };
+/** An uploaded report file. On web `uri` is an object URL; on native it is the picker asset URI. */
+export type ReportFile = { uri: string; name?: string | null; mimeType?: string | null };
+
+export type ConditionInfo = {
+  slug: string; label: string; category: string; aliases: string[];
+  nutrient_focus: string[]; awareness: string; questions: string[]; sources: string[];
+  lab_links: string[]; guidance_confidence: GuidanceConfidence;
+};
+export type ConditionRegistry = { version: string; conditions: ConditionInfo[]; categories: string[]; coverage: string; notes: string[] };
+export type IntakeEvidence = {
+  kind: 'lab' | 'condition' | 'baseline'; label: string; detail: string;
+  parameter_key?: string | null; value?: number | null; unit?: string | null;
+  reference_low?: number | null; reference_high?: number | null; report_id?: string | null;
+};
+export type IntakeTarget = {
+  nutrient: string; label: string; unit: string; baseline_value?: number | null; baseline_source: string;
+  proposed_value?: number | null; direction: 'lower' | 'higher' | 'maintain'; rule_id: string; basis: string;
+  confidence: GuidanceConfidence; requires_clinician: boolean; evidence: IntakeEvidence[];
+  questions: string[]; limit_scope: 'daily' | 'portion'; suggested_limit_source?: string | null;
+};
+export type IntakePlan = {
+  version: string; targets: IntakeTarget[]; conditions: ConditionInfo[]; unrecognised_conditions: string[];
+  reports_used: string[]; notes: string[]; coverage: string;
+};
+
+/** EU-14 allergen labels shared by the profile picker and every product surface. */
+export const EU_ALLERGENS: { value: Allergen; label: string }[] = [
+  { value: 'wheat', label: 'Wheat' }, { value: 'milk', label: 'Milk' }, { value: 'eggs', label: 'Eggs' },
+  { value: 'soy', label: 'Soy' }, { value: 'peanuts', label: 'Peanuts' }, { value: 'tree_nuts', label: 'Tree nuts' },
+  { value: 'sesame', label: 'Sesame' }, { value: 'fish', label: 'Fish' }, { value: 'shellfish', label: 'Shellfish' },
+  { value: 'celery', label: 'Celery' }, { value: 'mustard', label: 'Mustard' }, { value: 'lupin', label: 'Lupin' },
+  { value: 'molluscs', label: 'Molluscs' }, { value: 'sulphites', label: 'Sulphites' },
+];
+
+export function allergenLabel(value: Allergen): string {
+  return EU_ALLERGENS.find(option => option.value === value)?.label ?? value.replaceAll('_', ' ');
+}
+
+/** Prettify a free-text or registry condition value that is not in the current registry. */
+export function conditionLabel(value: string, registry?: ConditionRegistry | null): string {
+  return registry?.conditions.find(item => item.slug === value)?.label ?? value.replaceAll('_', ' ').replace(/\b\w/g, letter => letter.toUpperCase());
+}
+
+/** A printed reference range from whatever the report supplied; unknown parts stay explicit. */
+export function formatReferenceRange(referenceLow?: number | null, referenceHigh?: number | null): string {
+  if (referenceLow != null && referenceHigh != null) return `${referenceLow}–${referenceHigh}`;
+  if (referenceLow != null) return `above ${referenceLow}`;
+  if (referenceHigh != null) return `below ${referenceHigh}`;
+  return 'not printed';
+}
+
+/** One readable line for a single intake evidence row. */
+export function formatEvidence(evidence: IntakeEvidence): string {
+  const parts: string[] = [evidence.label];
+  if (evidence.parameter_key) {
+    const value = evidence.value == null ? 'value not recorded' : `${evidence.value}${evidence.unit ? ` ${evidence.unit}` : ''}`;
+    parts.push(`${value} (reference ${formatReferenceRange(evidence.reference_low, evidence.reference_high)})`);
+  }
+  if (evidence.detail) parts.push(evidence.detail);
+  return parts.join(' · ');
+}
+
+/** Which report an evidence row came from, without printing the stored filename. */
+export function evidenceReportLabel(evidence: IntakeEvidence): string | null {
+  if (evidence.kind !== 'lab' || !evidence.report_id) return null;
+  return `Report ${evidence.report_id.slice(0, 8)}`;
+}
+
+export function parameterStatusTone(status: ParameterStatus | undefined): 'red' | 'green' | 'amber' | 'neutral' {
+  return status === 'high' || status === 'low' ? 'red' : status === 'normal' ? 'green' : 'neutral';
+}
+
+export function confidenceLabel(confidence: GuidanceConfidence): string {
+  return confidence === 'established' ? 'established guidance' : confidence === 'clinician_only' ? 'clinician review required' : 'general wellbeing guidance';
+}
+
 const baseUrl = (process.env.EXPO_PUBLIC_API_URL || (Platform.OS === 'android' ? 'http://10.0.2.2:8000' : 'http://localhost:8000')).replace(/\/$/, '');
 
 /** Frontend-origin codes sit alongside the backend's documented error codes. */
@@ -115,6 +224,7 @@ export class ApiError extends Error {
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const LABEL_TIMEOUT_MS = 60_000;
+const REPORT_TIMEOUT_MS = 90_000;
 export const TIMEOUT_MESSAGE = 'The server did not respond in time. Check your connection and try again.';
 
 let unauthorizedHandler: (() => void) | null = null;
@@ -203,6 +313,22 @@ export const api = {
   recommend: (token: string, assessmentId: string, preferences?: string) => request<Recommendation>('/api/recommendations', token, { method: 'POST', body: JSON.stringify({ assessment_id: assessmentId, preferences }) }),
   dishesOptions: (token: string) => request<DishOptions>('/api/dishes/options', token),
   assessDish: (token: string, payload: DishPayload) => request<DishAssessment>('/api/dishes/assess', token, { method: 'POST', body: JSON.stringify(payload) }),
+  conditions: (token: string) => request<ConditionRegistry>('/api/conditions', token),
+  reports: (token: string, limit = 20, offset = 0) => request<HealthReportList>(`/api/reports?limit=${limit}&offset=${offset}`, token),
+  report: (token: string, id: string) => request<HealthReportResult>(`/api/reports/${encodeURIComponent(id)}`, token),
+  extractReport: async (token: string, file: ReportFile) => {
+    const form = new FormData();
+    if (Platform.OS === 'web') {
+      const blob = await (await fetch(file.uri)).blob();
+      form.append('file', new File([blob], file.name || 'report.pdf', { type: file.mimeType || blob.type || 'application/pdf' }));
+    } else {
+      form.append('file', { uri: file.uri, name: file.name || 'report.jpg', type: file.mimeType || 'image/jpeg' } as unknown as Blob);
+    }
+    return request<HealthReportResult>('/api/reports/extract', token, { method: 'POST', body: form }, REPORT_TIMEOUT_MS);
+  },
+  confirmReport: (token: string, id: string, payload: HealthReportConfirmRequest) => request<HealthReportResult>(`/api/reports/${encodeURIComponent(id)}/confirm`, token, { method: 'POST', body: JSON.stringify(payload) }),
+  deleteReport: (token: string, id: string) => request<void>(`/api/reports/${encodeURIComponent(id)}`, token, { method: 'DELETE' }),
+  intakePlan: (token: string, profileId: string, profileVersion: number) => request<IntakePlan>('/api/intake/plan', token, { method: 'POST', body: JSON.stringify({ profile_id: profileId, profile_version: profileVersion }) }),
 };
 
 export function toProduct(id: string, food: FoodObservation): Product {

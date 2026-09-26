@@ -16,8 +16,25 @@ Nutrient = Literal[
     "energy_kcal",
 ]
 Allergen = Literal[
-    "wheat", "milk", "eggs", "soy", "peanuts", "tree_nuts", "sesame", "fish", "shellfish"
+    "wheat",
+    "milk",
+    "eggs",
+    "soy",
+    "peanuts",
+    "tree_nuts",
+    "sesame",
+    "fish",
+    "shellfish",
+    # EU-14 remainder: these are matched by ingredient name only, never by a packaged
+    # "contains" tag, so the evidence stays explicit about what was actually declared.
+    "celery",
+    "mustard",
+    "lupin",
+    "molluscs",
+    "sulphites",
 ]
+Sex = Literal["female", "male", "unspecified"]
+AgeBand = Literal["under_18", "18_29", "30_44", "45_59", "60_74", "75_plus", "unspecified"]
 Positive = Annotated[float, Field(gt=0, allow_inf_nan=False)]
 
 
@@ -57,13 +74,17 @@ class ProfileData(StrictModel):
     conditions: list[Annotated[str, Field(min_length=1, max_length=80)]] = Field(
         default_factory=list, max_length=20
     )
-    allergies: list[Allergen] = Field(default_factory=list, max_length=9)
+    allergies: list[Allergen] = Field(default_factory=list, max_length=14)
     ingredient_exclusions: list[Annotated[str, Field(min_length=2, max_length=80)]] = Field(
         default_factory=list, max_length=30
     )
     limits: list[Limit] = Field(default_factory=list, max_length=10)
     goals: list[Goal] = Field(default_factory=list, max_length=5)
     preferences: str = Field(default="", max_length=500)
+    # Optional: reference ranges and energy/iron baselines differ by sex and age band.
+    # "unspecified" keeps the wider range and says so in the intake plan.
+    sex: Sex = "unspecified"
+    age_band: AgeBand = "unspecified"
 
     @model_validator(mode="after")
     def unique_targets(self):
@@ -100,9 +121,9 @@ class FoodObservation(StrictModel):
     advisories_text: str | None = Field(default=None, max_length=4000)
     ingredients_complete: bool = False
     advisories_complete: bool = False
-    declared_allergens: list[Allergen] = Field(default_factory=list, max_length=9)
-    precautionary_allergens: list[Allergen] = Field(default_factory=list, max_length=9)
-    reported_allergens: list[Allergen] = Field(default_factory=list, max_length=9)
+    declared_allergens: list[Allergen] = Field(default_factory=list, max_length=14)
+    precautionary_allergens: list[Allergen] = Field(default_factory=list, max_length=14)
+    reported_allergens: list[Allergen] = Field(default_factory=list, max_length=14)
     nutrients: dict[Nutrient, Annotated[float, Field(ge=0, allow_inf_nan=False)] | None] = Field(
         default_factory=dict
     )
@@ -273,3 +294,132 @@ class DishAssessmentResponse(ResponseModel):
     id: str
     dish: DishResult
     assessment: AssessmentResult
+
+
+# --- Health reports and personal intake (frozen contract) -------------------------------
+ReferenceSource = Literal["document", "standard", "unknown"]
+ParameterStatus = Literal["low", "normal", "high", "unknown"]
+GuidanceConfidence = Literal["established", "general_wellbeing", "clinician_only"]
+
+
+class LabParameter(StrictModel):
+    """One measured value from a health report.
+
+    ``status`` and any unit conversion are always computed in code; the model only
+    reads the document. ``raw_text`` keeps the label as printed so a correction is
+    auditable.
+    """
+
+    key: str = Field(min_length=2, max_length=60)
+    label: str = Field(min_length=1, max_length=120)
+    value: float | None = None
+    unit: str | None = Field(default=None, max_length=30)
+    reference_low: float | None = None
+    reference_high: float | None = None
+    reference_source: ReferenceSource = "unknown"
+    raw_text: str | None = Field(default=None, max_length=200)
+    status: ParameterStatus = "unknown"
+
+
+class ReportConfirm(LabParameter):
+    """A confirmed parameter as the user accepts it (edited values allowed)."""
+
+
+class HealthReportResult(ResponseModel):
+    id: str
+    status: Literal["extracted", "confirmed"]
+    collected_on: str | None = None
+    parameters: list[LabParameter]
+    abnormal_parameters: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    confirmation_required: bool = True
+    source: dict[str, Any] = Field(default_factory=dict)
+    provider: dict[str, Any] = Field(default_factory=dict)
+
+
+class HealthReportSummary(ResponseModel):
+    id: str
+    status: Literal["extracted", "confirmed"]
+    collected_on: str | None = None
+    parameter_count: int
+    abnormal_count: int
+    created_at: str
+
+
+class HealthReportList(ResponseModel):
+    reports: list[HealthReportSummary]
+    total: int
+    limit: int
+    offset: int
+
+
+class HealthReportConfirmRequest(StrictModel):
+    parameters: list[ReportConfirm] = Field(default_factory=list, max_length=60)
+    collected_on: str | None = Field(default=None, max_length=20)
+    note: str = Field(default="", max_length=500)
+
+
+class ConditionInfo(ResponseModel):
+    slug: str
+    label: str
+    category: str
+    aliases: list[str] = Field(default_factory=list)
+    nutrient_focus: list[str] = Field(default_factory=list)
+    awareness: str
+    questions: list[str] = Field(default_factory=list, max_length=10)
+    sources: list[str] = Field(default_factory=list, max_length=6)
+    lab_links: list[str] = Field(default_factory=list)
+    guidance_confidence: GuidanceConfidence = "general_wellbeing"
+
+
+class ConditionRegistry(ResponseModel):
+    version: str
+    conditions: list[ConditionInfo]
+    categories: list[str] = Field(default_factory=list)
+    coverage: str
+    notes: list[str] = Field(default_factory=list)
+
+
+class IntakeEvidence(ResponseModel):
+    kind: Literal["lab", "condition", "baseline"]
+    label: str
+    detail: str
+    parameter_key: str | None = None
+    value: float | None = None
+    unit: str | None = None
+    reference_low: float | None = None
+    reference_high: float | None = None
+    report_id: str | None = None
+
+
+class IntakeTarget(ResponseModel):
+    nutrient: str
+    label: str
+    unit: str
+    baseline_value: float | None = None
+    baseline_source: str
+    proposed_value: float | None = None
+    direction: Literal["lower", "higher", "maintain"]
+    rule_id: str
+    basis: str
+    confidence: GuidanceConfidence
+    requires_clinician: bool = False
+    evidence: list[IntakeEvidence] = Field(default_factory=list)
+    questions: list[str] = Field(default_factory=list, max_length=6)
+    limit_scope: Literal["daily", "portion"] = "daily"
+    suggested_limit_source: str | None = None
+
+
+class IntakePlan(ResponseModel):
+    version: str
+    targets: list[IntakeTarget]
+    conditions: list[ConditionInfo] = Field(default_factory=list)
+    unrecognised_conditions: list[str] = Field(default_factory=list)
+    reports_used: list[str] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+    coverage: str
+
+
+class IntakePlanRequest(StrictModel):
+    profile_id: UUID
+    profile_version: int = Field(ge=1)

@@ -8,6 +8,7 @@ import httpx
 from app.config import Settings
 from app.integrations.off import ProviderError, valid_nutrient
 from app.schemas import FoodObservation
+from app.services.labs import CANONICAL_KEYS
 
 logger = logging.getLogger(__name__)
 

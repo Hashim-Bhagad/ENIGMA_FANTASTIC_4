@@ -2,7 +2,7 @@ import logging
 import re
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -26,6 +26,10 @@ router = APIRouter(
 def search_pattern(query: str) -> str:
     # Treat user-entered %, _ and backslashes as literal characters in SQL LIKE.
     return "%" + query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+
+
+def escape_like(query: str) -> str:
+    return query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 def saved_search(session: Session, query: str, limit: int):
@@ -252,11 +256,33 @@ def reference_foods(
     limit: int = Query(default=10, ge=1, le=30),
     session: Session = Depends(get_session),
 ):
-    """Search ingredient-composition reference foods. Requires a bearer token."""
-    text = search_pattern(q)
+    """Search ingredient-composition reference foods. Requires a bearer token.
+
+    Results are ordered by relevance so a type-ahead can use them directly: exact
+    code or name first, then names that start with the query, then a word-boundary
+    match, then any substring.
+    """
+    term = q.strip()
+    escaped = escape_like(term)
+    prefix = f"{escaped}%"
+    word_start = f"% {escaped}%"
+    contains = f"%{escaped}%"
+    relevance = case(
+        (func.lower(ReferenceFood.name) == term.lower(), 0),
+        (ReferenceFood.code == term, 1),
+        (ReferenceFood.name.ilike(prefix, escape="\\"), 2),
+        (ReferenceFood.name.ilike(word_start, escape="\\"), 3),
+        else_=4,
+    )
     rows = session.scalars(
         select(ReferenceFood)
-        .where(or_(ReferenceFood.code == q, ReferenceFood.name.ilike(text, escape="\\")))
+        .where(
+            or_(
+                ReferenceFood.code == term,
+                ReferenceFood.name.ilike(contains, escape="\\"),
+            )
+        )
+        .order_by(relevance, ReferenceFood.name)
         .limit(limit)
     )
     return {

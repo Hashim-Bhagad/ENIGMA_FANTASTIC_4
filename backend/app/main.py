@@ -144,17 +144,17 @@ def create_app(settings: Settings | None = None):
         CORSMiddleware,
         allow_origins=settings.cors_origins,
         allow_credentials=False,
-        allow_methods=["GET", "POST", "PUT"],
+        allow_methods=["GET", "POST", "PUT", "DELETE"],
         allow_headers=["Authorization", "Content-Type"],
     )
     register_error_handlers(app)
     install_error_handler(app)
 
     routers = [accounts.router, products.router, assessments.router, labels.router, recipes.router]
-    if importlib.util.find_spec("app.api.dishes") is not None:
-        from app.api import dishes
-
-        routers.append(dishes.router)
+    for module_name in ("dishes", "reports", "intake", "conditions"):
+        if importlib.util.find_spec(f"app.api.{module_name}") is not None:
+            module = importlib.import_module(f"app.api.{module_name}")
+            routers.append(module.router)
     for router in routers:
         app.include_router(router)
 

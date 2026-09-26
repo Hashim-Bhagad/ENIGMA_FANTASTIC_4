@@ -2,8 +2,12 @@ import re
 
 from app.schemas import FoodObservation, ProfileData
 from app.services.assessment import RULE_VERSION, assess
+from app.services.conditions import awareness_codes  # noqa: E402
 
+# Fixed engine codes plus every code the condition registry can emit, so adding a
+# registry entry extends the contract instead of breaking this test.
 STABLE_CODES = {
+    *awareness_codes(),
     "allergen_declared",
     "allergen_precautionary",
     "allergen_source_reported",

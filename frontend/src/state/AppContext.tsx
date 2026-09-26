@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { Allergen, api, ApiError, Assessment, DishAssessment, DishPayload, FoodObservation, ProfilesGuide, ProfileData, Recommendation, SavedProfile, setUnauthorizedHandler, toProduct, type Product } from '@/src/api/client';
+import { Allergen, api, ApiError, Assessment, DishAssessment, DishPayload, EU_ALLERGENS, FoodObservation, IntakeTarget, isNutrient, ProfilesGuide, ProfileData, Recommendation, SavedProfile, setUnauthorizedHandler, toProduct, type Product } from '@/src/api/client';
 import { session } from '@/src/api/session';
 
 export type AuthState = 'loading' | 'signed-out' | 'profile-missing' | 'ready' | 'session-error';
@@ -10,10 +10,8 @@ export type DishDraft = { name: string; ingredients: DishIngredientDraft[]; cook
 
 const EMPTY_PROFILE: ProfileData = { conditions: [], allergies: [], ingredient_exclusions: [], limits: [], goals: [], preferences: '' };
 const EMPTY_DISH: DishDraft = { name: '', ingredients: [{ key: 'row-1', text: '', referenceCode: null, grams: '' }], cookingNotes: [], declarationsConfirmed: false, portion: '' };
-const UI_TO_ALLERGEN: Record<string, Allergen> = { Wheat: 'wheat', Milk: 'milk', Eggs: 'eggs', Soy: 'soy', Peanuts: 'peanuts', 'Tree nuts': 'tree_nuts', Sesame: 'sesame', Fish: 'fish', Shellfish: 'shellfish' };
-const ALLERGEN_TO_UI = Object.fromEntries(Object.entries(UI_TO_ALLERGEN).map(([label, value]) => [value, label]));
-const UI_TO_CONDITION: Record<string, string> = { 'High blood pressure': 'hypertension', 'Kidney disease': 'ckd' };
-const CONDITION_TO_UI: Record<string, string> = { hypertension: 'High blood pressure', ckd: 'Kidney disease' };
+const UI_TO_ALLERGEN: Record<string, Allergen> = Object.fromEntries(EU_ALLERGENS.map(({ value, label }) => [label, value]));
+const ALLERGEN_TO_UI = Object.fromEntries(EU_ALLERGENS.map(({ value, label }) => [value, label])) as Record<Allergen, string>;
 const EMPTY_FOOD: FoodObservation = { name: 'New product', brand: null, barcode: null, category: null, basis: null, ingredients_text: null, advisories_text: null, ingredients_complete: false, advisories_complete: false, declared_allergens: [], precautionary_allergens: [], reported_allergens: [], nutrients: {}, source: { kind: 'manual', reference: 'User entered label observations', warnings: [] } };
 const HISTORY_PAGE_SIZE = 20;
 
@@ -21,7 +19,7 @@ type AppContextValue = {
   authState: AuthState; authError: string; token: string | null; email: string;
   authenticate: (email: string, password: string, create: boolean) => Promise<void>;
   retrySession: () => Promise<void>; signOut: () => Promise<void>;
-  profile: SavedProfile | null; profileDraft: ProfileData; setProfileDraft: (data: ProfileData) => void; saveProfile: () => Promise<void>;
+  profile: SavedProfile | null; profileDraft: ProfileData; setProfileDraft: (data: ProfileData) => void; saveProfile: () => Promise<void>; applyIntakeTarget: (target: IntakeTarget) => Promise<SavedProfile>;
   product: Product; setProduct: (product: Product) => void; products: Product[]; setProducts: (products: Product[]) => void;
   search: string; setSearch: (value: string) => void; catalogMessage: string; loadCatalog: () => Promise<void>; searchCatalog: (query: string) => Promise<void>; lookupBarcode: (barcode: string) => Promise<Product>;
   allergens: string[]; toggleAllergen: (value: string) => void; conditions: string[]; toggleCondition: (value: string) => void;
@@ -121,37 +119,55 @@ export function AppProvider({ children }: React.PropsWithChildren) {
     resetSessionState(); setAuthState('signed-out');
   }, [resetSessionState]);
 
-  const saveProfile = useCallback(async () => {
+  const persistProfile = useCallback(async (draft: ProfileData) => {
     if (!token) throw new ApiError('Sign in before saving your profile.', 401, 'unauthorized');
-    await withOperation('profile', async () => {
-      setError('');
-      const payload: ProfileData = { ...profileDraft, conditions: profileDraft.conditions.map(value => UI_TO_CONDITION[value] || value) };
-      try {
-        const updated = await api.saveProfile(token, payload, profile?.version ?? null);
-        setProfile(updated); setProfileDraft(updated.data); setAuthState('ready');
-      } catch (cause) {
-        if (cause instanceof ApiError && (cause.code === 'profile_version_stale' || cause.status === 409)) {
-          // Keep the user's edits and adopt the server version so a retry can succeed.
-          try { const current = await api.profile(token); setProfile(current); } catch { /* The save error below still explains the conflict. */ }
-          setError('Your saved profile changed elsewhere. We kept your current edits; review them and save again to store them.');
-        } else {
-          setError(cause instanceof Error ? cause.message : 'Your profile could not be saved.');
-        }
-        throw cause;
+    setError('');
+    try {
+      const updated = await api.saveProfile(token, draft, profile?.version ?? null);
+      setProfile(updated); setProfileDraft(updated.data); setAuthState('ready');
+      return updated;
+    } catch (cause) {
+      if (cause instanceof ApiError && (cause.code === 'profile_version_stale' || cause.status === 409)) {
+        // Keep the user's edits and adopt the server version so a retry can succeed.
+        try { const current = await api.profile(token); setProfile(current); } catch { /* The save error below still explains the conflict. */ }
+        setError('Your saved profile changed elsewhere. We kept your current edits; review them and save again to store them.');
+      } else {
+        setError(cause instanceof Error ? cause.message : 'Your profile could not be saved.');
       }
-    });
-  }, [profile, profileDraft, token, withOperation]);
+      throw cause;
+    }
+  }, [profile, token]);
+
+  const saveProfile = useCallback(async () => {
+    await withOperation('profile', () => persistProfile(profileDraft));
+  }, [persistProfile, profileDraft, withOperation]);
+
+  /**
+   * Record one confirmed intake target as a profile limit. A proposal only becomes a limit
+   * once the user accepts it here; the plan itself never writes to the profile.
+   */
+  const applyIntakeTarget = useCallback(async (target: IntakeTarget) => {
+    if (!profile) throw new ApiError('Save a profile before recording a target.', 409, 'conflict');
+    if (!isNutrient(target.nutrient) || target.proposed_value == null || !target.suggested_limit_source) {
+      throw new ApiError('This target cannot be recorded from the plan.', 400, 'validation_error');
+    }
+    const nutrient = target.nutrient;
+    const maximum = target.proposed_value;
+    const source = target.suggested_limit_source;
+    const nextDraft: ProfileData = {
+      ...profileDraft,
+      limits: [...profileDraft.limits.filter(limit => !(limit.nutrient === nutrient && limit.scope === target.limit_scope)), { nutrient, maximum, scope: target.limit_scope, source }],
+      goals: target.direction === 'maintain' ? profileDraft.goals.filter(goal => goal.nutrient !== nutrient) : [...profileDraft.goals.filter(goal => goal.nutrient !== nutrient), { nutrient, direction: target.direction }],
+    };
+    return withOperation('profile', () => persistProfile(nextDraft));
+  }, [persistProfile, profile, profileDraft, withOperation]);
 
   const toggleAllergen = useCallback((label: string) => {
     const key = UI_TO_ALLERGEN[label]; if (!key) return;
     setProfileDraft(current => ({ ...current, allergies: current.allergies.includes(key) ? current.allergies.filter(x => x !== key) : [...current.allergies, key] }));
   }, []);
-  const toggleCondition = useCallback((label: string) => {
-    setProfileDraft(current => {
-      const display = current.conditions.map(value => CONDITION_TO_UI[value] || value);
-      const next = display.includes(label) ? display.filter(value => value !== label) : [...display, label];
-      return { ...current, conditions: next };
-    });
+  const toggleCondition = useCallback((slug: string) => {
+    setProfileDraft(current => ({ ...current, conditions: current.conditions.includes(slug) ? current.conditions.filter(value => value !== slug) : [...current.conditions, slug] }));
   }, []);
   const setSodiumLimit = useCallback((value: string) => {
     setProfileDraft(current => {
@@ -291,13 +307,13 @@ export function AppProvider({ children }: React.PropsWithChildren) {
   const clearDish = useCallback(() => { setDishResult(null); setDishDraft(EMPTY_DISH); }, []);
 
   const allergens = profileDraft.allergies.map(value => ALLERGEN_TO_UI[value]).filter(Boolean);
-  const conditions = profileDraft.conditions.map(value => CONDITION_TO_UI[value] || value);
+  const conditions = profileDraft.conditions;
   const sodiumLimit = String(profileDraft.limits.find(item => item.nutrient === 'sodium_mg' && item.scope === 'daily')?.maximum ?? '');
   const busy = Object.values(operations).some(Boolean);
   const busyFor = useCallback((name: Operation) => Boolean(operations[name]), [operations]);
   const value = useMemo<AppContextValue>(() => ({
     authState, authError, token, email, authenticate, retrySession: restoreSession, signOut,
-    profile, profileDraft, setProfileDraft, saveProfile,
+    profile, profileDraft, setProfileDraft, saveProfile, applyIntakeTarget,
     product, setProduct, products, setProducts,
     search, setSearch, catalogMessage, loadCatalog, searchCatalog, lookupBarcode, allergens, toggleAllergen, conditions, toggleCondition,
     labelPhoto, setLabelPhoto, sodiumLimit, setSodiumLimit, extractLabel,
@@ -306,7 +322,7 @@ export function AppProvider({ children }: React.PropsWithChildren) {
     guide, guideError, loadGuide,
     dishDraft, setDishDraft, dishResult, assessDish, clearDish,
     busy, busyFor, error, clearError: () => setError(''),
-  }), [authState, authError, token, email, authenticate, restoreSession, signOut, profile, profileDraft, saveProfile, product, products, search, catalogMessage, loadCatalog, searchCatalog, lookupBarcode, allergens, toggleAllergen, conditions, toggleCondition, labelPhoto, sodiumLimit, setSodiumLimit, extractLabel, assessment, createAssessment, recommendation, getRecommendations, history, historyTotal, hasMoreHistory, loadHistory, loadMoreHistory, openAssessment, guide, guideError, loadGuide, dishDraft, dishResult, assessDish, clearDish, busy, busyFor, error]);
+  }), [authState, authError, token, email, authenticate, restoreSession, signOut, profile, profileDraft, saveProfile, applyIntakeTarget, product, products, search, catalogMessage, loadCatalog, searchCatalog, lookupBarcode, allergens, toggleAllergen, conditions, toggleCondition, labelPhoto, sodiumLimit, setSodiumLimit, extractLabel, assessment, createAssessment, recommendation, getRecommendations, history, historyTotal, hasMoreHistory, loadHistory, loadMoreHistory, openAssessment, guide, guideError, loadGuide, dishDraft, dishResult, assessDish, clearDish, busy, busyFor, error]);
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }
 

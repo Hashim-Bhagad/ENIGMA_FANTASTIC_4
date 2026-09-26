@@ -1,6 +1,7 @@
 import re
 
 from app.schemas import FoodObservation, ProfileData
+from app.services.conditions import AWARENESS_PACKS, resolve_conditions
 from app.services.ingredient_taxonomy import (
     TAXONOMY_VERSION,
     ambiguous_ingredient_mentions,
@@ -42,6 +43,49 @@ ALIASES = {
     "sesame": ["sesame", "tahini"],
     "fish": ["fish", "anchovy", "anchovies", "salmon", "tuna"],
     "shellfish": ["shrimp", "prawn", "prawns", "crab", "lobster", "shellfish"],
+    # EU-14 remainder: matched by declared ingredient name only, never by a packaged
+    # "contains" tag, so the finding stays explicit about what was actually declared.
+    "celery": ["celery", "celeriac", "celery seed"],
+    "mustard": ["mustard", "mustard seed", "mustard oil"],
+    "lupin": ["lupin", "lupin flour"],
+    "molluscs": [
+        "mollusc",
+        "molluscs",
+        "mollusk",
+        "mollusks",
+        "squid",
+        "octopus",
+        "mussel",
+        "mussels",
+        "clam",
+        "clams",
+        "oyster",
+        "oysters",
+        "scallop",
+        "scallops",
+        "snail",
+        "snails",
+        "cuttlefish",
+    ],
+    "sulphites": [
+        "sulphite",
+        "sulphites",
+        "sulfite",
+        "sulfites",
+        "sulphur dioxide",
+        "sulfur dioxide",
+        "sodium metabisulphite",
+        "sodium metabisulfite",
+        "e220",
+        "e221",
+        "e222",
+        "e223",
+        "e224",
+        "e225",
+        "e226",
+        "e227",
+        "e228",
+    ],
 }
 AMBIGUOUS_TERMS = [
     "natural flavour",
@@ -510,92 +554,9 @@ def assess(profile: ProfileData, food: FoodObservation, portion: float | None = 
                     field=goal.nutrient,
                 )
             )
-    conditions = {x.casefold() for x in profile.conditions}
-    if "diabetes" in conditions:
-        carb = food.nutrients.get("carbohydrates_g")
-        carb_text = "unknown on this record" if carb is None else f"{carb} g per {food.basis}"
-        considerations.append(
-            finding(
-                "condition_carbohydrate_awareness",
-                "consideration",
-                "Diabetes awareness: review carbohydrate",
-                f"Diabetes awareness pack: this record lists total carbohydrate as {carb_text}; "
-                "review it against the portion you will eat, because sugar-free wording does not "
-                "establish carbohydrate suitability.",
-                message="Review total carbohydrate and portion; sugar-free does not establish "
-                "carbohydrate suitability.",
-                next_step="Check the portion against the carbohydrate guidance from your clinician.",
-                affects=["condition:diabetes", "nutrient:carbohydrates_g"],
-                kind="carbohydrate_awareness",
-                carbohydrates_per_basis=carb,
-                basis=food.basis,
-            )
-        )
-        if carb is None:
-            unresolved.append(
-                finding(
-                    "condition_carbohydrate_unknown",
-                    "unresolved",
-                    "Carbohydrate unknown for diabetes awareness",
-                    "You recorded diabetes, but the total carbohydrate value is missing, so this "
-                    "portion cannot be reviewed for carbohydrate.",
-                    message="Total carbohydrate is unknown for the selected diabetes awareness pack.",
-                    next_step="Find the total carbohydrate value on the nutrition panel.",
-                    affects=["condition:diabetes", "nutrient:carbohydrates_g"],
-                    field="carbohydrates_g",
-                )
-            )
-    if "hypertension" in conditions:
-        sodium = food.nutrients.get("sodium_mg")
-        considerations.append(
-            finding(
-                "condition_sodium_awareness",
-                "consideration",
-                "Hypertension awareness: review sodium",
-                "Hypertension awareness pack: this record lists sodium as "
-                f"{'unknown' if sodium is None else f'{sodium} mg per {food.basis}'}; review it "
-                "against any personal limit you recorded.",
-                message="Review sodium and any personally recorded limit.",
-                next_step="Compare the portion's sodium with the limit your clinician gave you.",
-                affects=["condition:hypertension", "nutrient:sodium_mg"],
-                kind="sodium_awareness",
-                sodium_per_basis=sodium,
-                basis=food.basis,
-            )
-        )
-        if sodium is None:
-            unresolved.append(
-                finding(
-                    "condition_sodium_unknown",
-                    "unresolved",
-                    "Sodium unknown for hypertension awareness",
-                    "You recorded hypertension, but the sodium value is missing, so this portion "
-                    "cannot be reviewed for sodium.",
-                    message="Sodium is unknown for the selected hypertension awareness pack.",
-                    next_step="Find the sodium value on the nutrition panel.",
-                    affects=["condition:hypertension", "nutrient:sodium_mg"],
-                    field="sodium_mg",
-                )
-            )
-    if "ckd" in conditions:
-        considerations.append(
-            finding(
-                "condition_ckd_limits_only",
-                "consideration",
-                "CKD: only your recorded limits are checked",
-                "Kidney nutrient guidance depends on individual clinical advice, so this "
-                "assessment evaluates only the limits, allergies and exclusions you recorded.",
-                message="CKD nutrient restrictions depend on individual guidance; only your "
-                "explicitly recorded limits are evaluated.",
-                affects=["condition:ckd"],
-                kind="individual_guidance",
-            )
-        )
-    unsupported = [
-        x for x in profile.conditions if x.casefold() not in {"diabetes", "hypertension", "ckd"}
-    ]
-    if unsupported:
-        joined = ", ".join(unsupported)
+    recognised, unrecognised = resolve_conditions(profile.conditions)
+    if unrecognised:
+        joined = ", ".join(unrecognised)
         unresolved.append(
             finding(
                 "condition_pack_unsupported",
@@ -607,11 +568,67 @@ def assess(profile: ProfileData, food: FoodObservation, portion: float | None = 
                 "restrictions are still checked.",
                 next_step="Record any specific restriction your clinician gave you as a limit, "
                 "allergy or exclusion.",
-                affects=[f"condition:{x}" for x in unsupported],
+                affects=[f"condition:{x}" for x in unrecognised],
                 field="condition_guidance",
-                conditions=unsupported,
+                conditions=unrecognised,
             )
         )
+    for slug in recognised:
+        pack = AWARENESS_PACKS.get(slug)
+        if pack is None:
+            # A recognised condition with no deterministic pack stays honest and unresolved.
+            unresolved.append(
+                finding(
+                    "condition_pack_unsupported",
+                    "unresolved",
+                    "No awareness pack for a recorded condition",
+                    f"No supported awareness pack covers {slug}, so only your explicitly "
+                    "recorded limits, allergies, exclusions and goals were checked.",
+                    message="No condition-specific assessment pack is active; explicit recorded "
+                    "restrictions are still checked.",
+                    next_step="Record any specific restriction your clinician gave you as a "
+                    "limit, allergy or exclusion.",
+                    affects=[f"condition:{slug}"],
+                    field="condition_guidance",
+                    conditions=[slug],
+                )
+            )
+            continue
+        nutrient_key = pack["nutrient_key"]
+        value = food.nutrients.get(nutrient_key) if nutrient_key else None
+        if value is None:
+            amount = pack.get("unknown_amount", "unknown on this record")
+        elif pack["unit"]:
+            amount = f"{value} {pack['unit']} per {food.basis}"
+        else:
+            amount = f"{value} per {food.basis}"
+        considerations.append(
+            finding(
+                pack["code"],
+                "consideration",
+                pack["title"],
+                pack["known_detail"].format(amount=amount),
+                message=pack["message"],
+                next_step=pack["next_step"],
+                affects=pack["affects"],
+                kind=pack["kind"],
+                nutrient=nutrient_key,
+                basis=food.basis,
+            )
+        )
+        if value is None and pack["unknown_code"]:
+            unresolved.append(
+                finding(
+                    pack["unknown_code"],
+                    "unresolved",
+                    pack["unknown_title"],
+                    pack["unknown_detail"],
+                    message=pack["unknown_message"],
+                    next_step=pack["unknown_next_step"],
+                    affects=pack["affects"],
+                    field=nutrient_key,
+                )
+            )
 
     conflicts, unresolved, considerations = (
         dedupe(conflicts),

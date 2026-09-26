@@ -37,6 +37,8 @@ export default function RootLayout() {
           <Stack.Screen name="assessment" options={{ presentation: 'card' }} />
           <Stack.Screen name="replacements" options={{ presentation: 'card' }} />
           <Stack.Screen name="dish" options={{ presentation: 'card' }} />
+          <Stack.Screen name="reports" options={{ presentation: 'card' }} />
+          <Stack.Screen name="intake" options={{ presentation: 'card' }} />
         </Stack>
       </AppProvider>
     </SafeAreaProvider>
