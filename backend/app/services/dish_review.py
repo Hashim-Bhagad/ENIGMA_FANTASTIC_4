@@ -27,6 +27,9 @@ MODEL_UNCLEAR_CODE = "model_ingredient_unclear"
 # Bound on the findings one review may add, so a long list of unresolved wording cannot bury the
 # deterministic findings under model output.
 MAX_MODEL_FINDINGS = 12
+# One call reviews the typed list; a very long recipe still stays inside the token budget, and
+# the lines beyond this keep their deterministic treatment plus the "not reviewed" note.
+MAX_REVIEW_LINES = 30
 MODEL_REVIEW_NEXT_STEP = "Check the pack's ingredient list before relying on this meal."
 
 REVIEW_STATUSES = ("applied", "skipped", "unavailable")
@@ -163,7 +166,7 @@ def apply_verdicts(dish_block, result, verdicts) -> dict:
     return result
 
 
-def build_review_block(verdicts, status, message) -> dict:
+def build_review_block(verdicts, status, message, reviewed: int | None = None) -> dict:
     """The review as the UI should read it: labelled, and never silent about what was read.
 
     ``verdicts`` keeps every row the model returned for a reviewed line, including
@@ -172,18 +175,24 @@ def build_review_block(verdicts, status, message) -> dict:
     """
     if status not in REVIEW_STATUSES:
         raise ValueError(f"Unsupported review status: {status}")
+    rows = [
+        {
+            "input_text": row.get("input_text"),
+            "verdict": row.get("verdict"),
+            "reason": row.get("reason"),
+            "matched_restriction": row.get("matched_restriction"),
+            "confidence": row.get("confidence"),
+            # A substitute travels with the verdict it belongs to, so no second call is needed.
+            "substitutes": list(row.get("substitutes") or []),
+        }
+        for row in verdicts
+    ]
+    flagged = sum(1 for row in rows if row["verdict"] in {"avoid", "limit"})
     return {
         "status": status,
-        "verdicts": [
-            {
-                "input_text": row.get("input_text"),
-                "verdict": row.get("verdict"),
-                "reason": row.get("reason"),
-                "matched_restriction": row.get("matched_restriction"),
-                "confidence": row.get("confidence"),
-            }
-            for row in verdicts
-        ],
+        "verdicts": rows,
+        "reviewed": reviewed,
+        "flagged": flagged,
         "message": message,
         "disclaimer": REVIEW_DISCLAIMER,
     }

@@ -164,13 +164,13 @@ def test_needs_review_only_for_unresolved_wording_that_raised_no_conflict(db_eng
         assert needs_review(food, result, result["dish"]["unmatched"]) is True
 
 
-def test_a_dish_with_no_unresolved_line_is_skipped_without_asking_the_model(client, db_engine):
+def test_every_dish_is_reviewed_even_when_the_vocabulary_resolved_every_line(client, db_engine):
     headers = signup(client)
     profile = new_profile(client, headers, {"allergies": ["milk"]})
     with Session(db_engine) as session:
         seed(session, "A011", "Rice, flakes", {"sodium_mg": 10})
         session.commit()
-    models, seen = review_provider([review_row("Masala paste", "avoid")])
+    models, seen = review_provider([review_row("Poha", "no_concern_found")])
     client.app.state.models = models
 
     body = assess(
@@ -180,9 +180,10 @@ def test_a_dish_with_no_unresolved_line_is_skipped_without_asking_the_model(clie
         [{"text": "Poha", "reference_code": "A011", "grams": 80}],
     ).json()
 
-    assert body["dish"]["model_review"]["status"] == "skipped"
-    assert body["dish"]["model_review"]["verdicts"] == []
-    assert seen == [], "a resolved dish must not spend a provider call"
+    # The wording review covers the whole typed list, so a resolved dish is still reviewed: the
+    # user asked for flags on every check, and the deterministic findings stand beside it.
+    assert body["dish"]["model_review"]["status"] == "applied"
+    assert len(seen) >= 1, "the review runs for every dish with ingredients"
 
 
 def test_a_real_conflict_is_never_softened_by_a_model_review(client, db_engine):
@@ -204,8 +205,11 @@ def test_a_real_conflict_is_never_softened_by_a_model_review(client, db_engine):
     assert [item["code"] for item in body["assessment"]["conflicts"]] == [
         "exclusion_declared_match"
     ]
-    assert body["dish"]["model_review"]["status"] == "skipped"
-    assert review_requests(seen) == [], "a real conflict must not trigger a wording review"
+    # A conflict must never be softened by the review: the deterministic finding is unchanged and
+    # the model's row stays a separate, labelled block.
+    assert [item["code"] for item in body["assessment"]["conflicts"]] == ["exclusion_declared_match"]
+    assert body["dish"]["model_review"]["status"] in {"applied", "unavailable"}
+    assert body["dish"]["model_review"]["disclaimer"]
 
 
 # --- What a verdict becomes -----------------------------------------------------------------
@@ -425,16 +429,16 @@ def test_the_prompt_carries_the_restrictions_and_conditions_and_never_identity(c
     payload = json.loads(seen[0].content)
     prompt = payload["messages"][0]["content"][0]["text"]
     assert payload["temperature"] == 0
-    assert payload["max_tokens"] == 3072
+    assert payload["max_tokens"] == 5120
     assert payload["response_format"]["json_schema"]["name"] == "IngredientReview"
     verdicts = payload["response_format"]["json_schema"]["schema"]["properties"]["ingredients"][
         "items"
     ]["properties"]["verdict"]["enum"]
     assert verdicts == ["avoid", "limit", "no_concern_found", "cannot_determine"]
 
-    # Only the lines the reference vocabulary could not resolve are reviewed.
+    # The whole typed list is reviewed, so a resolved line is covered too.
     assert "Masala paste" in prompt
-    assert '"Poha"' not in prompt
+    assert '"Poha"' in prompt
     # The registered restrictions and conditions are the whole of what is being checked.
     assert '"milk"' in prompt and "type_2_diabetes" in prompt
     # The wording is data, never instructions, and the answer carries no measurement or clearance.

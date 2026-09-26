@@ -22,6 +22,10 @@ from app.services.kitchen_terms import (
     STAPLE_TERMS,
     STAPLES,
     Staple,
+    core_phrase,
+    head_phrase,
+    is_blend,
+    singular_forms,
 )
 
 # Reference composition stores these keys; only label vocabulary keys are carried into the
@@ -198,29 +202,61 @@ def resolve_ingredient(
             return None, "reference_code", f"No reference food has code {item.reference_code}."
         return row, "reference_code", None
 
-    term = normalize_name(item.text)
-    alias_code = ALIASES.get(term)
-    if alias_code:
-        row = session.get(ReferenceFood, alias_code)
+    # A recipe line is a phrase, not a name: strip the quantity, unit, preparation words and
+    # asides first, then look up the core wording. The typed text is never replaced.
+    literal = normalize_name(item.text)
+    core = core_phrase(item.text)
+    candidates = list(dict.fromkeys([literal, core, *singular_forms(core)]))
+    for candidate in candidates:
+        alias_code = ALIASES.get(candidate)
+        if alias_code:
+            row = session.get(ReferenceFood, alias_code)
+            if row is not None:
+                note = f"“{item.text}” matched {row.name} ({row.code}) by kitchen name."
+                if candidate != literal:
+                    note += f" Read as “{candidate}” for lookup; the wording you typed is kept."
+                return row, "alias", note
+        staple_key = STAPLE_TERMS.get(candidate)
+        staple = STAPLES.get(staple_key) if staple_key else None
+        if staple is not None:
+            return (
+                StapleRow(candidate, staple),
+                "staple",
+                f"“{item.text}” used a standard composition value (not IFCT).",
+            )
+        row = index.get(candidate)
         if row is not None:
-            return row, "alias", f"“{item.text}” matched {row.name} ({row.code}) by kitchen name."
-    staple_key = STAPLE_TERMS.get(term)
-    staple = STAPLES.get(staple_key) if staple_key else None
-    if staple is not None:
+            return (
+                row,
+                "name",
+                (None if candidate == literal else f"Read as “{candidate}” for lookup."),
+            )
+    # "turmeric powder" and "cauliflower florets" name the same food as their head word.
+    for candidate in candidates:
+        head = head_phrase(candidate)
+        if head and head in ALIASES:
+            row = session.get(ReferenceFood, ALIASES[head])
+            if row is not None:
+                return (
+                    row,
+                    "alias",
+                    f"“{item.text}” matched {row.name} ({row.code}); the form word was dropped.",
+                )
+    if is_blend(item.text):
         return (
-            StapleRow(term, staple),
-            "staple",
-            f"“{item.text}” used a standard composition value (not IFCT).",
+            None,
+            "name",
+            (
+                f"“{item.text}” names a blend or prepared mixture, so its own ingredients are not "
+                "declared. Check the pack's ingredient list or ask what went into it."
+            ),
         )
-    row = index.get(term)
-    if row is not None:
-        return row, "name", None
     return (
         None,
         "name",
         (
-            "No reference food matches this name exactly; check the spelling or pick a match from "
-            "the reference-food search."
+            "No reference food matches this wording; check the spelling, reword it to a simpler "
+            "ingredient name, or pick a match from the reference-food search."
         ),
     )
 

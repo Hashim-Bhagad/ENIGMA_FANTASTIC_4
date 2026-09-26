@@ -321,6 +321,11 @@ INGREDIENT_REVIEW_SCHEMA = {
                     "reason": {"type": "string"},
                     "matched_restriction": {"type": ["string", "null"]},
                     "confidence": {"type": "string", "enum": list(INGREDIENT_REVIEW_CONFIDENCE)},
+                    "substitutes": {
+                        "type": "array",
+                        "maxItems": 2,
+                        "items": {"type": "string"},
+                    },
                 },
                 "required": [
                     "input_text",
@@ -340,6 +345,16 @@ INGREDIENT_REVIEW_SCHEMA = {
 # One sentence of why is enough for a finding, and anything longer is heading for a 700-character
 # detail field beside the line it is about.
 INGREDIENT_REVIEW_REASON_LIMIT = 200
+
+
+def _clean_substitutes(value) -> list[str]:
+    """Up to two short substitute strings, trimmed and capped before the caller screens them."""
+    if not isinstance(value, list):
+        return []
+    cleaned = [
+        str(item).strip()[:120] for item in value if isinstance(item, str) and str(item).strip()
+    ]
+    return cleaned[:2]
 
 
 def normalize_ingredient_review(
@@ -389,6 +404,9 @@ def normalize_ingredient_review(
                 "reason": reason or "the model gave no reason",
                 "matched_restriction": allowed.get(restriction.casefold()) if restriction else None,
                 "confidence": confidence if confidence in confidences else "low",
+                # Swaps travel with the verdict so one call answers both questions; the caller
+                # screens every one of them against the recorded restrictions before display.
+                "substitutes": _clean_substitutes(raw_row.get("substitutes")),
             }
         )
     if not cleaned:
@@ -950,8 +968,10 @@ class ModelAssist:
             "restrictions, which are the recorded allergies and ingredient exclusions. The "
             "recorded conditions are context only: do not diagnose anything, do not advise about "
             "them, and do not treat them as a restriction. "
-            "Return exactly one row per ingredient line, in the same order, and copy that line's "
-            "text verbatim into input_text. "
+            "Return one row ONLY for a line you flag as avoid or limit, or that you cannot judge "
+            "(cannot_determine), and copy that line's text verbatim into input_text. Omit every "
+            "line whose reading raised no concern: leaving a line out means this reading found "
+            "nothing about it for the recorded restrictions, which is not a clearance. "
             "Set verdict to avoid when the wording names a likely source of a recorded "
             "restriction; limit when the wording suggests the line should be limited or "
             "double-checked; no_concern_found when this reading of the wording raises no concern "
@@ -964,6 +984,11 @@ class ModelAssist:
             "Never state or imply a nutrient amount, a calorie value, a dose or portion advice, "
             "and never call a line safe, suitable or clear: no_concern_found means only that this "
             "reading found no concern in the wording, not that the food is safe. "
+            "When a verdict is avoid or limit, also give up to two practical cooking substitutes "
+            "in substitutes: short, buyable or makeable at home, and never containing anything in "
+            "the recorded restrictions. Leave substitutes empty when the verdict is "
+            "no_concern_found or cannot_determine, and give no nutrient amount, calorie figure, "
+            "dose, portion advice, and never call a substitute safe or suitable. "
             "Return JSON using this schema: " + json.dumps(INGREDIENT_REVIEW_SCHEMA)
         )
         try:

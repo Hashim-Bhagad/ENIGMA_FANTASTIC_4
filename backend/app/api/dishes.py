@@ -24,20 +24,15 @@ from app.schemas import (
     ProfileData,
 )
 from app.security import current_user
-from app.services.dish_alternatives import (
-    MAX_MODEL_LINES,
-    build_alternatives,
-    catalogue_options,
-    flagged_lines,
-)
+from app.services.dish_alternatives import build_alternatives, flagged_lines
 from app.services.dish_review import (
+    MAX_REVIEW_LINES,
     MESSAGE_APPLIED,
     MESSAGE_SKIPPED_DISABLED,
     MESSAGE_SKIPPED_NOT_NEEDED,
     MESSAGE_UNAVAILABLE,
     apply_verdicts,
     build_review_block,
-    needs_review,
 )
 from app.services.dishes import COOKING_NOTES, dish_options
 from app.services.dishes import assess_dish as run_dish_assessment
@@ -93,14 +88,17 @@ async def _model_review(
     """
     if not body.use_model_review:
         return build_review_block([], "skipped", MESSAGE_SKIPPED_DISABLED)
-    unmatched = dish["unmatched"]
-    if not needs_review(food, result, unmatched):
-        return build_review_block([], "skipped", MESSAGE_SKIPPED_NOT_NEEDED)
+    # One call reviews the whole typed list, so a dish is never left unflagged just because the
+    # reference vocabulary happened to resolve a line. The deterministic pass still runs first and
+    # its findings stand on their own.
+    lines = [item.text for item in body.ingredients][:MAX_REVIEW_LINES]
+    if not lines:
+        return build_review_block([], "skipped", MESSAGE_SKIPPED_NOT_NEEDED, reviewed=0)
     enforce_user(DISH_REVIEW_SCOPE, 10, 60, user)
     restrictions = [*profile_data.allergies, *profile_data.ingredient_exclusions]
     try:
         verdicts = await request.app.state.models.review_ingredients(
-            [item["input_text"] for item in unmatched],
+            lines,
             restrictions,
             profile_data.conditions,
         )
@@ -108,7 +106,7 @@ async def _model_review(
         logger.warning("dish wording review failed: %s", type(exc).__name__)
         return build_review_block([], "unavailable", MESSAGE_UNAVAILABLE)
     apply_verdicts(dish, result, verdicts)
-    return build_review_block(verdicts, "applied", MESSAGE_APPLIED)
+    return build_review_block(verdicts, "applied", MESSAGE_APPLIED, reviewed=len(lines))
 
 
 async def _alternatives(
@@ -128,39 +126,17 @@ async def _alternatives(
     lines = flagged_lines(dish, result)
     if not lines:
         return build_alternatives(dish, result, profile_data)
-
-    needs_model = [
-        line["input_text"]
-        for line in lines
-        if not (
-            catalogue_options(line.get("resolved_to") or line["input_text"])
-            or catalogue_options(line["input_text"])
-        )
-    ]
-    model_options: dict = {}
-    if needs_model[:MAX_MODEL_LINES]:
-        restrictions = [*profile_data.allergies, *profile_data.ingredient_exclusions]
-        try:
-            # Swaps share the review budget because both spend provider credit; a spent budget
-            # only costs the extra suggestions, never the assessment itself.
-            enforce_user(DISH_REVIEW_SCOPE, 10, 60, user)
-            model_options = await request.app.state.models.suggest_swaps(
-                needs_model[:MAX_MODEL_LINES], restrictions
-            )
-        except ApiError:
-            block = build_alternatives(dish, result, profile_data)
-            block["notes"].append(
-                "Extra substitute suggestions were skipped: this minute's suggestion budget is "
-                "used. The reviewed swaps above still apply."
-            )
-            return block
-        except ProviderError as exc:
-            logger.warning("dish swap suggestions failed: %s", type(exc).__name__)
-            block = build_alternatives(dish, result, profile_data)
-            block["notes"].append(
-                "Extra substitute suggestions were unavailable; the reviewed swaps above still apply."
-            )
-            return block
+    # The wording call already returned substitute suggestions with each verdict, so no second
+    # provider call is made here; the reviewed catalogue answers first and every option is
+    # screened against all recorded restrictions before it is shown.
+    model_options = {
+        row["input_text"]: [
+            {"text": text, "why": "Suggested substitute for this ingredient."}
+            for text in row.get("substitutes", [])
+        ]
+        for row in dish.get("model_review", {}).get("verdicts", [])
+        if row.get("substitutes")
+    }
     return build_alternatives(dish, result, profile_data, model_options)
 
 

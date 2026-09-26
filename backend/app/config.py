@@ -40,8 +40,8 @@ class Settings(BaseSettings):
     # reasons before it answers, so its budget also has to cover the reasoning trace.
     # One dish check can spend this twice (wording review, then swap suggestions), so the
     # whole model section stays bounded well inside the client's request timeout.
-    dish_review_timeout: float = Field(default=25, gt=0, le=120)
-    dish_review_max_tokens: int = Field(default=3072, ge=128, le=8192)
+    dish_review_timeout: float = Field(default=45, gt=0, le=120)
+    dish_review_max_tokens: int = Field(default=5120, ge=128, le=8192)
     # Live Food.com recipe search. The actor charges per returned result, so
     # recipes_live_max_items is the spend cap and recipes_live_timeout_seconds
     # bounds the wall clock; both are enforced in app/services/recipes_live.py.

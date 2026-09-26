@@ -13,6 +13,8 @@ missing from both tables stays unmatched rather than being guessed at.
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from dataclasses import dataclass
 
 KITCHEN_TERMS_VERSION = "kitchen-terms-2026-09-26.1"
@@ -157,7 +159,258 @@ ALIASES: dict[str, str] = {
     "coconut oil": "T001",
     "mustard oil": "T006",
     "groundnut oil": "T005",
+    "black cardamom": "G021",
+    "asafoetida powder": "G019",
+    # Spices, aromatics and produce that IFCT files under another name
+    "capsicum": "D033",
+    "bell pepper": "D033",
+    "shimla mirch": "D033",
+    "garlic": "G011",
+    "lehsun": "G011",
+    "ginger": "G014",
+    "adrak": "G014",
+    "lemon": "E033",
+    "nimbu": "E033",
+    "black pepper": "G031",
+    "kali mirch": "G031",
+    "pepper": "G031",
+    "cloves": "G023",
+    "laung": "G023",
+    "cardamom": "G021",
+    "elaichi": "G021",
+    "green cardamom": "G020",
+    "dhania seeds": "G024",
+    "bay leaf": "G022",
+    "tej patta": "G022",
+    "cinnamon": "G027",
+    "dalchini": "G027",
+    "mango powder": "D057",
+    "amchur": "D057",
+    "dry mango powder": "D057",
+    "potatoes": "F006",
+    "tomatoes": "D075",
+    "onions": "G017",
+    "carrots": "F002",
+    "green peas": "D061",
+    "mint": "G012",
 }
+
+
+def _fold(text: str) -> str:
+    """NFKC + casefold + punctuation folding, local to this module (no import cycle)."""
+    value = unicodedata.normalize("NFKC", text).casefold()
+    value = "".join(ch if ch.isalnum() or ch.isspace() else " " for ch in value)
+    return " ".join(value.split())
+
+
+# --- Recipe phrasing -----------------------------------------------------------------------
+# A recipe line is not an ingredient name: it carries a quantity, a unit, preparation words and
+# parenthetical asides ("10 medium boiled and peeled potatoes", "1 1/2 cup green peas"). The
+# resolver works on the core phrase so the reference table can actually be reached, and the
+# typed wording is kept in the result either way.
+
+_QUANTITY = re.compile(
+    r"^\s*(?:"
+    r"[0-9]+\s*[\u2044/]\s*[0-9]+|"  # 1/2
+    r"[0-9]+\s*[-–]\s*[0-9]+|"  # 4-5
+    r"[0-9]+(?:\.[0-9]+)?|"  # 3, 1.5
+    r"[\u00bc-\u00be\u2150-\u215e]|"  # ¼ ½ ¾
+    r"(?:a|an|some|few|half)\b"
+    r")+\s*",
+    re.IGNORECASE,
+)
+
+_UNITS = (
+    "cups",
+    "cup",
+    "teaspoons",
+    "teaspoon",
+    "tsps",
+    "tsp",
+    "tablespoons",
+    "tablespoon",
+    "tbsps",
+    "tbsp",
+    "grams",
+    "gram",
+    "gms",
+    "gm",
+    "g",
+    "kgs",
+    "kg",
+    "mg",
+    "ml",
+    "l",
+    "litre",
+    "liter",
+    "millilitres",
+    "milliliters",
+    "inch",
+    "inches",
+    "pinch",
+    "pinches",
+    "handful",
+    "handfuls",
+    "cloves",
+    "clove",
+    "pods",
+    "pod",
+    "sprigs",
+    "sprig",
+    "pieces",
+    "piece",
+    "slices",
+    "slice",
+    "medium",
+    "large",
+    "small",
+    "big",
+    "sized",
+    "size",
+    "no",
+    "nos",
+)
+
+_PREP = (
+    "boiled",
+    "peeled",
+    "chopped",
+    "sliced",
+    "grated",
+    "crushed",
+    "minced",
+    "diced",
+    "cut",
+    "fresh",
+    "freshly",
+    "dried",
+    "dry",
+    "soft",
+    "roasted",
+    "fried",
+    "ground",
+    "whole",
+    "washed",
+    "cleaned",
+    "trimmed",
+    "halved",
+    "quartered",
+    "beaten",
+    "melted",
+    "softened",
+    "optional",
+    "as",
+    "needed",
+    "required",
+    "available",
+    "taste",
+    "plus",
+    "much",
+    "you",
+    "want",
+    "to",
+    "put",
+    "on",
+    "and",
+    "or",
+    "if",
+    "any",
+    "except",
+    "others",
+    "that",
+    "have",
+    "strong",
+    "flavour",
+    "flavor",
+    "preferred",
+    "preferably",
+    "i",
+    "use",
+    "using",
+    "also",
+    "called",
+    "very",
+    "thinly",
+    "finely",
+    "roughly",
+    "lightly",
+)
+
+# A trailing form word ("turmeric powder", "cauliflower florets") can be dropped when the head
+# word resolves, because the form does not change which food it is. "seeds" and "leaves" are
+# deliberately absent: coriander seeds and coriander leaves are different foods.
+_DROP_TAIL = ("powder", "florets", "puree", "extract", "juice")
+
+# A blend hides its own ingredients, so it is never treated as one food.
+BLEND_TERMS = (
+    "masala",
+    "spice mix",
+    "spices mix",
+    "mixed spices",
+    "mixed herbs",
+    "seasoning",
+    "seasoning mix",
+    "flavouring",
+    "flavoring",
+    "sauce",
+    "chutney",
+    "pickle",
+    "paste",
+    "batter",
+    "mix",
+)
+
+
+def core_phrase(text: str) -> str:
+    """The core ingredient wording: quantity, units, preparation words and asides removed."""
+    value = unicodedata.normalize("NFKC", text).casefold()
+    value = re.sub(r"\([^)]*\)", " ", value)  # "(or 1/2 teaspoon ginger powder)"
+    value = value.split(" or ")[0]
+    value = value.replace(",", " ")
+    for _ in range(3):  # "1 1/2 cup" and "4 -5" are more than one numeric token
+        stripped = _QUANTITY.sub(" ", value)
+        if stripped == value:
+            break
+        value = stripped
+    words = []
+    for word in value.split():
+        cleaned = word.strip("-–")
+        if not cleaned or cleaned in _UNITS or cleaned in _PREP:
+            continue
+        words.append(cleaned)
+    phrase = " ".join(words).strip()
+    return phrase or _fold(text)
+
+
+def is_blend(text: str) -> bool:
+    """True when the wording names a blend or a prepared mixture rather than one food."""
+    value = _fold(text)
+    return any(term in value for term in BLEND_TERMS)
+
+
+def head_phrase(phrase: str) -> str | None:
+    """The phrase with a trailing form word removed, when one is present."""
+    words = phrase.split()
+    if len(words) > 1 and words[-1] in _DROP_TAIL:
+        return " ".join(words[:-1])
+    return None
+
+
+def singular_forms(phrase: str) -> list[str]:
+    """The phrase plus a simple singular of each word, longest (most specific) first."""
+    forms = [phrase]
+    words = phrase.split()
+    if len(words) == 1 and len(phrase) > 3 and phrase.endswith("es"):
+        forms.append(phrase[:-2])
+    if len(words) == 1 and len(phrase) > 3 and phrase.endswith("s"):
+        forms.append(phrase[:-1])
+    for index, word in enumerate(words):
+        if len(word) > 3 and word.endswith("es"):
+            forms.append(" ".join([*words[:index], word[:-2], *words[index + 1 :]]))
+        elif len(word) > 3 and word.endswith("s"):
+            forms.append(" ".join([*words[:index], word[:-1], *words[index + 1 :]]))
+    return list(dict.fromkeys(forms))
+
 
 # Per 100 g, from standard tables. Used only where IFCT has no row at all. The values are
 # complete on purpose: a missing entry would make the whole dish's nutrient "unknown" even when
