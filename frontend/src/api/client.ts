@@ -209,14 +209,30 @@ export type IntakeEvidence = {
   parameter_key?: string | null; value?: number | null; unit?: string | null;
   reference_low?: number | null; reference_high?: number | null; report_id?: string | null;
 };
+/** The same number in the units people cook with (grams of salt, teaspoons of sugar). */
+export type IntakeEquivalent = { label: string; value: number; unit: string };
+export type AvoidSeverity = 'avoid' | 'limit' | 'ask';
+/** One concrete thing to avoid or limit, with the reason it is listed and what it links to. */
+export type AvoidItem = { label: string; examples: string[]; reason: string; linked_nutrients: string[] };
+/** A severity-bucketed group of avoid/limit/ask entries with the evidence that triggered it. */
+export type AvoidGroup = {
+  id: string; title: string; detail: string; severity: AvoidSeverity; items: AvoidItem[];
+  confidence: GuidanceConfidence; sources: string[]; evidence: IntakeEvidence[];
+};
 export type IntakeTarget = {
   nutrient: string; label: string; unit: string; baseline_value?: number | null; baseline_source: string;
   proposed_value?: number | null; direction: 'lower' | 'higher' | 'maintain'; rule_id: string; basis: string;
   confidence: GuidanceConfidence; requires_clinician: boolean; evidence: IntakeEvidence[];
   questions: string[]; limit_scope: 'daily' | 'portion'; suggested_limit_source?: string | null;
+  /** The same number in cooking units, e.g. "1500 mg sodium ≈ 3.8 g salt". */
+  display_value?: string | null; equivalents: IntakeEquivalent[];
+  /** The arithmetic in one sentence, so the number is never unexplained. */
+  derivation?: string | null;
+  /** The raw confirmed lab values behind this target, with units and reference ranges. */
+  measured: IntakeEvidence[];
 };
 export type IntakePlan = {
-  version: string; targets: IntakeTarget[]; conditions: ConditionInfo[]; unrecognised_conditions: string[];
+  version: string; targets: IntakeTarget[]; avoid: AvoidGroup[]; conditions: ConditionInfo[]; unrecognised_conditions: string[];
   reports_used: string[]; notes: string[]; coverage: string;
 };
 
@@ -261,6 +277,46 @@ export function formatEvidence(evidence: IntakeEvidence): string {
 export function evidenceReportLabel(evidence: IntakeEvidence): string | null {
   if (evidence.kind !== 'lab' || !evidence.report_id) return null;
   return `Report ${evidence.report_id.slice(0, 8)}`;
+}
+
+/** One measured value in plain words: your reading, its printed range, and the report behind it. */
+export function formatMeasuredLine(evidence: IntakeEvidence): string {
+  const value = evidence.value == null ? 'value not recorded' : `${evidence.value}${evidence.unit ? ` ${evidence.unit}` : ''}`;
+  const range = formatReferenceRange(evidence.reference_low, evidence.reference_high);
+  const report = evidenceReportLabel(evidence);
+  const head = `your ${evidence.label}: ${value} (range ${range})`;
+  return report ? `${head} · ${report}` : head;
+}
+
+/** One human-scale equivalent of the same number, e.g. "Salt: 3.8 g". */
+export function formatEquivalent(equivalent: IntakeEquivalent): string {
+  const amount = `${equivalent.value}${equivalent.unit ? ` ${equivalent.unit}` : ''}`;
+  return equivalent.label ? `${equivalent.label}: ${amount}` : amount;
+}
+
+export function avoidSeverityLabel(severity: AvoidSeverity): string {
+  if (severity === 'avoid') return 'AVOID';
+  return severity === 'ask' ? 'ASK YOUR CLINICIAN' : 'LIMIT';
+}
+
+export function avoidSeverityTone(severity: AvoidSeverity): 'red' | 'amber' | 'blue' {
+  if (severity === 'avoid') return 'red';
+  return severity === 'ask' ? 'blue' : 'amber';
+}
+
+/** What is proposed for one nutrient, and who has to decide when nothing can be proposed. */
+export function intakeProposedLine(target: IntakeTarget): string {
+  if (target.proposed_value == null) {
+    return target.requires_clinician ? 'No value is proposed here: a clinician needs to set this one.' : 'No change is proposed for this nutrient.';
+  }
+  const value = `${target.proposed_value}${target.unit ? ` ${target.unit}` : ''}`;
+  return target.direction === 'lower' ? `Proposed daily limit: at most ${value}` : target.direction === 'higher' ? `Proposed target: at least ${value}` : `Proposed target: keep near ${value}`;
+}
+
+/** What is already recorded as the starting point, and where that number came from. */
+export function intakeBaselineLine(target: IntakeTarget): string {
+  if (target.baseline_value == null) return `No recorded baseline · ${target.baseline_source}`;
+  return `Recorded baseline: ${target.baseline_value}${target.unit ? ` ${target.unit}` : ''} · ${target.baseline_source}`;
 }
 
 export function parameterStatusTone(status: ParameterStatus | undefined): 'red' | 'green' | 'amber' | 'neutral' {

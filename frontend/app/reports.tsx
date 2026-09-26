@@ -108,7 +108,7 @@ export default function ReportsScreen() {
     try {
       const updated = await api.confirmReport(token, review.id, { parameters, collected_on: collectedOn.trim() || null, note: note.trim() });
       setReview(updated); setRows(toEditableParameters(updated.parameters));
-      setMessage('Confirmed. These values can inform your personal intake plan.');
+      setMessage('Confirmed. These values now drive your intake plan — use “See what these results mean” below.');
       await loadReports();
     } catch (cause) { setFormError(cause instanceof Error ? cause.message : 'The confirmed values could not be saved.'); }
     finally { setConfirming(false); }
@@ -153,7 +153,8 @@ export default function ReportsScreen() {
       </View>)}</View>
       <View style={st.fields}><Text style={st.fieldLabel}>COLLECTION DATE (OPTIONAL)</Text><TextInput accessibilityLabel="Collection date" value={collectedOn} onChangeText={setCollectedOn} placeholder="e.g. 2026-05-14 as printed" placeholderTextColor={colors.subtle} style={st.input} /><Text style={st.fieldLabel}>NOTE (OPTIONAL)</Text><TextInput accessibilityLabel="Report note" value={note} onChangeText={setNote} placeholder="Anything you want to remember about this report" placeholderTextColor={colors.subtle} style={st.input} /></View>
       <Button title={confirmed ? 'Save corrected values again' : 'Confirm these values'} icon="check" loading={confirming} disabled={confirming} onPress={() => void confirm()} />
-      <Text style={st.note}>Nothing becomes a limit here. Confirmed values inform proposals on your personal intake screen, and only you can accept a target.</Text>
+      {confirmed ? <Button title="See what these results mean" icon="arrow-right" onPress={() => router.push('/intake')} /> : null}
+      <Text style={st.note}>{confirmed ? 'Your confirmed values are the ones the intake plan reads. ' : ''}Nothing becomes a limit here. Confirmed values inform proposals on your personal intake screen, and only you can accept a target.</Text>
     </Card> : null}
 
     <SectionTitle title="Saved reports" action="Refresh" onAction={() => void loadReports()} />

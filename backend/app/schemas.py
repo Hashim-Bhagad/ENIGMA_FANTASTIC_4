@@ -401,6 +401,36 @@ class IntakeEvidence(ResponseModel):
     reference_low: float | None = None
     reference_high: float | None = None
     report_id: str | None = None
+    # The date printed on the report, so a measured value reads "Report 2026-09-20".
+    measured_on: str | None = None
+
+
+class IntakeEquivalent(ResponseModel):
+    """A human-scale reading of the same number (grams of salt, teaspoons of sugar)."""
+
+    label: str
+    value: float
+    unit: str
+
+
+class AvoidItem(ResponseModel):
+    """One concrete thing to avoid or limit, with the reason it is listed."""
+
+    label: str
+    examples: list[str] = Field(default_factory=list, max_length=12)
+    reason: str
+    linked_nutrients: list[str] = Field(default_factory=list, max_length=6)
+
+
+class AvoidGroup(ResponseModel):
+    id: str
+    title: str
+    detail: str
+    severity: Literal["avoid", "limit", "ask"] = "limit"
+    items: list[AvoidItem] = Field(default_factory=list, max_length=12)
+    confidence: GuidanceConfidence = "general_wellbeing"
+    sources: list[str] = Field(default_factory=list, max_length=6)
+    evidence: list["IntakeEvidence"] = Field(default_factory=list)
 
 
 class IntakeTarget(ResponseModel):
@@ -419,11 +449,17 @@ class IntakeTarget(ResponseModel):
     questions: list[str] = Field(default_factory=list, max_length=6)
     limit_scope: Literal["daily", "portion"] = "daily"
     suggested_limit_source: str | None = None
+    # The same number in the units people cook with, and the arithmetic that produced it.
+    display_value: str | None = None
+    equivalents: list[IntakeEquivalent] = Field(default_factory=list)
+    derivation: str | None = None
+    measured: list["IntakeEvidence"] = Field(default_factory=list)
 
 
 class IntakePlan(ResponseModel):
     version: str
     targets: list[IntakeTarget]
+    avoid: list[AvoidGroup] = Field(default_factory=list)
     conditions: list[ConditionInfo] = Field(default_factory=list)
     unrecognised_conditions: list[str] = Field(default_factory=list)
     reports_used: list[str] = Field(default_factory=list)

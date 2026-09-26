@@ -3,23 +3,12 @@ import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, View } from 'r
 import { router } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Button, Card, PageHeader, Pill, Screen, SectionTitle } from '@/src/components/ui';
-import { api, confidenceLabel, evidenceReportLabel, formatEvidence, IntakePlan, IntakeTarget } from '@/src/api/client';
+import { api, avoidSeverityLabel, avoidSeverityTone, confidenceLabel, evidenceReportLabel, formatEquivalent, formatEvidence, formatMeasuredLine, intakeBaselineLine, intakeProposedLine, IntakePlan, IntakeTarget } from '@/src/api/client';
 import { useApp } from '@/src/state/AppContext';
 import { colors, radius } from '@/src/theme';
 
 function nutrientDisplay(nutrient: string, plan: IntakePlan | null): string {
   return plan?.targets.find(item => item.nutrient === nutrient)?.label ?? nutrient.replaceAll('_', ' ');
-}
-
-function proposedLine(target: IntakeTarget): string {
-  if (target.proposed_value == null) return 'No change is proposed for this nutrient.';
-  const value = `${target.proposed_value}${target.unit ? ` ${target.unit}` : ''}`;
-  return target.direction === 'lower' ? `Proposed daily limit: at most ${value}` : target.direction === 'higher' ? `Proposed target: at least ${value}` : `Proposed target: keep near ${value}`;
-}
-
-function baselineLine(target: IntakeTarget): string {
-  if (target.baseline_value == null) return `No recorded baseline · ${target.baseline_source}`;
-  return `Recorded baseline: ${target.baseline_value}${target.unit ? ` ${target.unit}` : ''} · ${target.baseline_source}`;
 }
 
 function confidenceTone(confidence: IntakeTarget['confidence']): 'green' | 'blue' | 'amber' {
@@ -80,8 +69,11 @@ export default function IntakeScreen() {
       <SectionTitle title="Proposed targets" action={`v${plan.version}`} />
       {plan.targets.length ? plan.targets.map(target => <Card key={target.rule_id} style={st.target}>
         <View style={st.targetHead}><View style={{ flex: 1 }}><Text style={st.targetTitle}>{target.label}</Text><Text style={st.cardSub}>{nutrientDisplay(target.nutrient, plan)} · {target.limit_scope}</Text></View><View style={st.pills}><Pill label={target.direction.toUpperCase()} tone="purple" /><Pill label={confidenceLabel(target.confidence)} tone={confidenceTone(target.confidence)} /></View></View>
-        <Text style={st.baseline}>{baselineLine(target)}</Text>
-        <Text style={st.proposed}>{proposedLine(target)}</Text>
+        {target.display_value ? <><Text style={st.headline}>{target.display_value}</Text><Text style={st.proposed}>{intakeProposedLine(target)}</Text></> : <Text style={st.headline}>{intakeProposedLine(target)}</Text>}
+        <Text style={st.baseline}>{intakeBaselineLine(target)}</Text>
+        {target.equivalents.length ? <View style={st.subBlock}><Text style={st.fieldLabel}>THE SAME NUMBER IN KITCHEN UNITS</Text>{target.equivalents.map((item, index) => <Text key={index} style={st.cardSub}>{formatEquivalent(item)}</Text>)}</View> : null}
+        {target.derivation ? <View style={st.subBlock}><Text style={st.fieldLabel}>HOW THIS NUMBER WAS DERIVED</Text><Text selectable style={st.cardSub}>{target.derivation}</Text></View> : null}
+        {target.measured.length ? <View style={st.subBlock}><Text style={st.fieldLabel}>YOUR OWN MEASURED VALUES</Text>{target.measured.map((item, index) => <Text key={index} selectable style={st.cardSub}>{formatMeasuredLine(item)}</Text>)}</View> : null}
         <Text style={st.basis}>{target.basis}</Text>
         {target.requires_clinician
           ? <View style={st.clinician}><MaterialCommunityIcons name="stethoscope" size={16} color={colors.amber} /><Text style={st.clinicianText}>This needs a clinician’s decision. No accept control is shown; ask about it at your next appointment.</Text></View>
@@ -94,6 +86,22 @@ export default function IntakeScreen() {
         </> : null}
         {target.questions.length ? <View style={st.questions}><Text style={st.fieldLabel}>QUESTIONS TO ASK</Text>{target.questions.map((question, index) => <Text key={index} style={st.cardSub}>{'\u2022'} {question}</Text>)}</View> : null}
       </Card>) : <Card style={st.empty}><MaterialCommunityIcons name="clipboard-text-outline" size={26} color={colors.subtle} /><Text style={st.cardTitle}>No proposals yet</Text><Text style={st.cardSub}>Add conditions or confirm a lab report, then load the plan again.</Text><Button title="Reload plan" compact secondary onPress={() => void loadPlan()} /></Card>}
+
+      <SectionTitle title="What to avoid" action={plan.avoid.length ? `${plan.avoid.length} group${plan.avoid.length === 1 ? '' : 's'}` : undefined} />
+      <Card style={st.notice}><MaterialCommunityIcons name="information-outline" size={18} color={colors.primary} /><Text style={st.noticeText}>These groups are derived from your recorded conditions and confirmed report values. A food that is not listed here is not implied safe: this is not a complete list of what matters for you.</Text></Card>
+      {plan.avoid.length ? plan.avoid.map(group => <Card key={group.id} style={st.target}>
+        <View style={st.targetHead}><Text style={[st.targetTitle, { flex: 1 }]}>{group.title}</Text><Pill label={avoidSeverityLabel(group.severity)} tone={avoidSeverityTone(group.severity)} /></View>
+        <Text style={st.cardSub}>{group.detail}</Text>
+        {group.items.length ? <View style={st.subBlock}>{group.items.map((item, index) => <View key={index} style={st.avoidItem}>
+          <Text style={st.avoidLabel}>{item.label}</Text>
+          {item.examples.length ? <Text style={st.cardSub}>Examples: {item.examples.join(', ')}</Text> : null}
+          <Text style={st.cardSub}>{item.reason}</Text>
+          {item.linked_nutrients.length ? <Text style={st.note}>Shows up as: {item.linked_nutrients.join(', ')}</Text> : null}
+        </View>)}</View> : <Text style={st.note}>No item is listed for this group yet.</Text>}
+        <View style={st.avoidMeta}><Pill label={confidenceLabel(group.confidence)} tone={confidenceTone(group.confidence)} />{group.sources.map((source, index) => <Pressable key={index} accessibilityRole="link" onPress={() => void Linking.openURL(source)}><Text style={st.link}>Open source guidance ↗</Text></Pressable>)}</View>
+        {group.severity === 'ask' ? <Text style={st.note}>Ask entries are questions for your clinician or the kitchen, not confirmed restrictions.</Text> : null}
+        {group.evidence.length ? <View style={st.subBlock}><Text style={st.fieldLabel}>WHAT TRIGGERED THIS</Text>{group.evidence.map((item, index) => <Text key={index} selectable style={st.cardSub}>{formatEvidence(item)}</Text>)}</View> : null}
+      </Card>) : <Card style={st.empty}><MaterialCommunityIcons name="shield-check-outline" size={26} color={colors.subtle} /><Text style={st.cardTitle}>Nothing to avoid is derived yet</Text><Text style={st.cardSub}>No condition or confirmed report value in your profile currently points at a food group to avoid or limit. Add a condition or confirm a report, then load the plan again.</Text></Card>}
 
       {plan.conditions.length ? <><SectionTitle title="Conditions in this plan" />{plan.conditions.map(item => <Card key={item.slug} style={st.condition}>
         <View style={st.targetHead}><Text style={st.targetTitle}>{item.label}</Text><Pill label={confidenceLabel(item.guidance_confidence)} tone={confidenceTone(item.guidance_confidence)} /></View>
@@ -120,6 +128,8 @@ const st = StyleSheet.create({
   links: { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap' }, link: { color: colors.primary, fontSize: 11, fontWeight: '700', paddingVertical: 4 },
   target: { gap: 9 }, targetHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 9 }, targetTitle: { color: colors.ink, fontSize: 15, lineHeight: 21, fontWeight: '800' }, pills: { alignItems: 'flex-end', gap: 5 },
   baseline: { color: colors.muted, fontSize: 11, lineHeight: 16 }, proposed: { color: colors.ink, fontSize: 13, lineHeight: 18, fontWeight: '700' }, basis: { color: colors.muted, fontSize: 11, lineHeight: 16 },
+  headline: { color: colors.primaryDark, fontSize: 18, lineHeight: 24, fontWeight: '800' }, subBlock: { gap: 4, borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 8 },
+  avoidItem: { gap: 3, paddingVertical: 6 }, avoidLabel: { color: colors.ink, fontSize: 13, lineHeight: 18, fontWeight: '800' }, avoidMeta: { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
   clinician: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: colors.amberBg, borderRadius: radius.chip, padding: 10 }, clinicianText: { flex: 1, color: colors.amberInk, fontSize: 11, lineHeight: 15 },
   note: { color: colors.subtle, fontSize: 10, lineHeight: 14 }, evidence: { borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 8, gap: 4 }, evidenceHead: { flexDirection: 'row', alignItems: 'center', gap: 8 }, evidenceText: { color: colors.ink, fontSize: 11, lineHeight: 16 },
   questions: { gap: 3, borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 8 }, fieldLabel: { color: colors.muted, letterSpacing: 1, fontSize: 9, fontWeight: '800' },

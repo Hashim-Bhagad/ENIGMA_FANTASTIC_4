@@ -248,3 +248,423 @@ def test_boundary_values_follow_the_rule_comparator(threshold_value, expected):
         profile(), [report("r1", [parameter("systolic_bp_mmhg", threshold_value, unit="mmHg")])]
     )
     assert (target_for(plan, "sodium_mg") is not None) is expected
+
+
+# --- Human-scale values -------------------------------------------------------------------
+
+
+def test_sodium_target_states_grams_of_salt():
+    plan = build_plan(profile(), [report("r1", [parameter("systolic_bp_mmhg", 138, unit="mmHg")])])
+    sodium = target_for(plan, "sodium_mg")
+    salt = next(row for row in sodium["equivalents"] if row["unit"] == "g")
+    assert salt["label"] == "grams of salt"
+    assert salt["value"] == pytest.approx(3.75), "salt = sodium x 2.5, in grams"
+    assert sodium["display_value"] == "1500 mg sodium \u2248 3.8 g salt"
+    assert "\u22483.8 g salt" in sodium["derivation"]
+
+
+def test_sugar_target_states_teaspoons():
+    plan = build_plan(
+        profile(),
+        [report("r1", [parameter("hba1c_percent", 7.4, unit="%", low=4.0, high=5.6)])],
+    )
+    sugars = target_for(plan, "sugars_g")
+    teaspoons = sugars["equivalents"][0]
+    assert teaspoons == {"label": "teaspoons of sugar", "value": 6.25, "unit": "tsp"}
+    assert sugars["display_value"] == "25 g sugars \u2248 6 teaspoons"
+
+
+def test_saturated_fat_target_states_percent_of_a_2000_kcal_day():
+    plan = build_plan(
+        profile(),
+        [report("r1", [parameter("ldl_cholesterol_mg_dl", 151, unit="mg/dL", high=100)])],
+    )
+    saturated = target_for(plan, "saturated_fat_g")
+    assert saturated["proposed_value"] == 15
+    percent = saturated["equivalents"][0]
+    assert percent["unit"] == "%"
+    assert percent["value"] == pytest.approx(6.75), "15 g x 9 kcal / 2000 kcal"
+    assert "6.8 % of a 2000 kcal day" in saturated["display_value"]
+
+
+def test_fibre_and_protein_equivalents_are_grams():
+    plan = build_plan(
+        profile(),
+        [report("r1", [parameter("ldl_cholesterol_mg_dl", 151, unit="mg/dL", high=100)])],
+    )
+    fibre = target_for(plan, "fiber_g")
+    assert fibre["equivalents"] == [
+        {"label": "grams of fibre", "value": float(fibre["proposed_value"]), "unit": "g"}
+    ]
+    assert fibre["display_value"] == "30 g fibre"
+
+
+def test_equivalents_helper_converts_baseline_references_too():
+    from app.services.intake import equivalents_for
+
+    assert equivalents_for("sodium_mg", 2000)[0]["value"] == pytest.approx(5.0), "WHO 5 g salt"
+    assert equivalents_for("sugars_g", 50)[0]["value"] == pytest.approx(12.5), "50 g free sugar"
+    assert equivalents_for("saturated_fat_g", 20)[0]["value"] == pytest.approx(9.0)
+    assert equivalents_for("sodium_mg", None) == []
+
+
+NUMERIC_SCENARIOS = [
+    ({}, [report("r1", [parameter("hba1c_percent", 7.4, unit="%", low=4.0, high=5.6)])]),
+    ({}, [report("r1", [parameter("systolic_bp_mmhg", 138, unit="mmHg")])]),
+    ({}, [report("r1", [parameter("ldl_cholesterol_mg_dl", 151, unit="mg/dL", high=100)])]),
+    ({"conditions": ["gout"]}, [report("r1", [parameter("uric_acid_mg_dl", 7.4, unit="mg/dL")])]),
+    ({"conditions": ["ckd"]}, [report("r1", [parameter("egfr_ml_min", 45, unit="mL/min")])]),
+    ({"conditions": ["hypertension"]}, []),
+]
+
+
+@pytest.mark.parametrize("changes,reports", NUMERIC_SCENARIOS)
+def test_every_numeric_target_has_display_value_and_derivation(changes, reports):
+    plan = build_plan(profile(**changes), reports)
+    numeric = [item for item in plan["targets"] if item["proposed_value"] is not None]
+    assert numeric, "these scenarios must produce a number"
+    for target in numeric:
+        assert target["display_value"], target["nutrient"]
+        assert str(target["proposed_value"]) in target["display_value"]
+        assert target["equivalents"], target["nutrient"]
+        assert target["derivation"] and "\u2192" in target["derivation"], target["nutrient"]
+
+
+def test_non_numeric_targets_explain_why_no_number_is_proposed():
+    plan = build_plan(profile(conditions=["vitamin_d_deficiency"]), [])
+    vitamin_d = target_for(plan, "vitamin_d")
+    assert vitamin_d["proposed_value"] is None
+    assert vitamin_d["display_value"] is None
+    assert vitamin_d["equivalents"] == []
+    assert vitamin_d["derivation"].endswith("no daily vitamin d number is proposed here")
+
+
+def test_clinician_only_targets_carry_measured_values_and_a_clinician_derivation():
+    plan = build_plan(profile(), [report("r1", [parameter("egfr_ml_min", 45, unit="mL/min")])])
+    potassium = target_for(plan, "potassium_mg")
+    assert potassium["confidence"] == "clinician_only"
+    assert potassium["proposed_value"] is None
+    assert potassium["display_value"] is None, "no converted number may leak into an ask"
+    assert potassium["equivalents"] == []
+    assert [item["parameter_key"] for item in potassium["measured"]] == ["egfr_ml_min"]
+    assert "must be set by your clinician" in potassium["derivation"]
+
+
+def test_high_potassium_target_keeps_measured_values_and_no_number():
+    plan = build_plan(
+        profile(),
+        [
+            report(
+                "r1",
+                [parameter("potassium_meq_l", 5.6, unit="mEq/L", low=3.5, high=5.1)],
+            )
+        ],
+    )
+    potassium = target_for(plan, "potassium_mg")
+    assert potassium["confidence"] == "clinician_only"
+    assert potassium["proposed_value"] is None and potassium["display_value"] is None
+    row = potassium["measured"][0]
+    assert (row["parameter_key"], row["value"], row["unit"]) == ("potassium_meq_l", 5.6, "mEq/L")
+    assert (row["reference_low"], row["reference_high"]) == (3.5, 5.1)
+    assert "clinician" in potassium["derivation"]
+
+
+def test_measured_values_carry_unit_reference_range_and_report_date():
+    plan = build_plan(
+        profile(),
+        [report("r1", [parameter("hba1c_percent", 7.4, unit="%", low=4.0, high=5.6)])],
+    )
+    measured = target_for(plan, "sugars_g")["measured"]
+    assert len(measured) == 1
+    row = measured[0]
+    assert row["kind"] == "lab"
+    assert (row["value"], row["unit"]) == (7.4, "%")
+    assert (row["reference_low"], row["reference_high"]) == (4.0, 5.6)
+    assert row["measured_on"] == REPORT_DATE
+    assert row["report_id"] == "r1"
+
+
+def test_condition_only_target_names_the_condition_and_shows_no_measurement():
+    plan = build_plan(profile(conditions=["hypertension"]), [])
+    sodium = target_for(plan, "sodium_mg")
+    assert sodium["measured"] == []
+    assert sodium["display_value"] == "1500 mg sodium \u2248 3.8 g salt"
+    assert sodium["derivation"] == (
+        "Recorded condition Hypertension \u2192 sodium ceiling 1500 mg/day (\u22483.8 g salt)"
+    )
+
+
+def test_plan_keeps_its_existing_keys_and_the_avoid_list():
+    plan = build_plan(profile(), [])
+    assert {
+        "version",
+        "targets",
+        "conditions",
+        "unrecognised_conditions",
+        "reports_used",
+        "notes",
+        "coverage",
+    } <= set(plan)
+    assert plan["avoid"] == []
+    plan = build_plan(profile(conditions=["hypertension"]), [])
+    assert {
+        "nutrient",
+        "label",
+        "unit",
+        "baseline_value",
+        "baseline_source",
+        "proposed_value",
+        "direction",
+        "rule_id",
+        "basis",
+        "confidence",
+        "requires_clinician",
+        "evidence",
+        "questions",
+        "limit_scope",
+        "suggested_limit_source",
+    } <= set(plan["targets"][0])
+
+
+# --- Avoid groups ---------------------------------------------------------------------------
+
+
+def avoid_ids(plan):
+    return {group["id"] for group in plan["avoid"]}
+
+
+def test_no_avoid_group_without_a_matching_lab_or_condition():
+    assert build_plan(profile(), [])["avoid"] == []
+    unrelated = build_plan(
+        profile(conditions=["ibs"]),
+        [report("r1", [parameter("sodium_meq_l", 140, unit="mEq/L", low=135, high=145)])],
+    )
+    assert unrelated["avoid"] == [], "a normal value and an unrelated condition fire nothing"
+
+
+def test_unconfirmed_report_fires_no_avoid_group():
+    plan = build_plan(
+        profile(),
+        [
+            report(
+                "r1",
+                [parameter("hba1c_percent", 7.4, unit="%", low=4.0, high=5.6)],
+                status="extracted",
+            )
+        ],
+    )
+    assert plan["avoid"] == []
+
+
+def test_avoid_group_can_fire_from_a_lab_that_sets_no_target():
+    plan = build_plan(
+        profile(),
+        [report("r1", [parameter("fasting_glucose_mg_dl", 130, unit="mg/dL", low=70, high=99)])],
+    )
+    assert avoid_ids(plan) == {"avoid_glycaemia_sugars_v1"}
+    assert target_for(plan, "sugars_g") is None, "no rule proposes a sugar number from glucose"
+
+
+AVOID_BOUNDARIES = [
+    ("systolic_bp_mmhg", 129, "mmHg", None, None, "limit_sodium_high_bp_v1", False),
+    ("systolic_bp_mmhg", 130, "mmHg", None, None, "limit_sodium_high_bp_v1", True),
+    ("diastolic_bp_mmhg", 79, "mmHg", None, None, "limit_sodium_high_bp_v1", False),
+    ("diastolic_bp_mmhg", 80, "mmHg", None, None, "limit_sodium_high_bp_v1", True),
+    ("hba1c_percent", 6.4, "%", 4.0, 5.6, "avoid_glycaemia_sugars_v1", False),
+    ("hba1c_percent", 6.5, "%", 4.0, 5.6, "avoid_glycaemia_sugars_v1", True),
+    ("fasting_glucose_mg_dl", 125, "mg/dL", 70, 99, "avoid_glycaemia_sugars_v1", False),
+    ("fasting_glucose_mg_dl", 126, "mg/dL", 70, 99, "avoid_glycaemia_sugars_v1", True),
+    ("ldl_cholesterol_mg_dl", 129, "mg/dL", None, 100, "avoid_trans_fat_v1", False),
+    ("ldl_cholesterol_mg_dl", 130, "mg/dL", None, 100, "avoid_trans_fat_v1", True),
+    ("triglycerides_mg_dl", 149, "mg/dL", None, 150, "limit_saturated_fat_foods_v1", False),
+    ("triglycerides_mg_dl", 150, "mg/dL", None, 150, "limit_saturated_fat_foods_v1", True),
+    ("egfr_ml_min", 60, "mL/min", 90, None, "ask_high_potassium_foods_v1", False),
+    ("egfr_ml_min", 60, "mL/min", 90, None, "ask_phosphate_additives_v1", False),
+    (
+        "egfr_ml_min",
+        59,
+        "mL/min",
+        90,
+        None,
+        "avoid_potassium_chloride_salt_substitute_v1",
+        True,
+    ),
+    ("potassium_meq_l", 4.9, "mEq/L", 3.5, 5.1, "ask_high_potassium_foods_v1", False),
+    ("potassium_meq_l", 5.0, "mEq/L", 3.5, 5.1, "ask_high_potassium_foods_v1", True),
+    ("uric_acid_mg_dl", 6.9, "mg/dL", None, 6.0, "avoid_gout_alcohol_organ_meats_v1", False),
+    ("uric_acid_mg_dl", 7.0, "mg/dL", None, 6.0, "avoid_gout_alcohol_organ_meats_v1", True),
+    (
+        "hemoglobin_g_dl",
+        12.0,
+        "g/dL",
+        12.0,
+        15.0,
+        "limit_anaemia_absorption_blockers_v1",
+        False,
+    ),
+    ("hemoglobin_g_dl", 11.9, "g/dL", 12.0, 15.0, "limit_anaemia_absorption_blockers_v1", True),
+    ("vitamin_b12_pg_ml", 200, "pg/mL", 200, None, "ask_b12_fortified_foods_v1", False),
+    ("vitamin_b12_pg_ml", 199, "pg/mL", 200, None, "ask_b12_fortified_foods_v1", True),
+    ("vitamin_d_ng_ml", 20, "ng/mL", 30, None, "ask_vitamin_d_supplement_v1", False),
+    ("vitamin_d_ng_ml", 19, "ng/mL", 30, None, "ask_vitamin_d_supplement_v1", True),
+    ("tsh_miu_l", 4.5, "mIU/L", None, 4.5, "ask_hypothyroidism_iodine_v1", False),
+    ("tsh_miu_l", 4.6, "mIU/L", None, 4.5, "ask_hypothyroidism_iodine_v1", True),
+    ("phosphorus_mg_dl", 4.4, "mg/dL", None, 4.5, "ask_phosphate_additives_v1", False),
+    ("phosphorus_mg_dl", 4.5, "mg/dL", None, 4.5, "ask_phosphate_additives_v1", True),
+]
+
+
+@pytest.mark.parametrize("key,value,unit,low,high,group_id,expected", AVOID_BOUNDARIES)
+def test_avoid_groups_fire_only_on_their_own_trigger(
+    key, value, unit, low, high, group_id, expected
+):
+    plan = build_plan(
+        profile(), [report("r1", [parameter(key, value, unit=unit, low=low, high=high)])]
+    )
+    assert (group_id in avoid_ids(plan)) is expected, (key, value, group_id)
+
+
+def test_avoid_evidence_points_at_the_lab_value_that_fired():
+    plan = build_plan(
+        profile(),
+        [report("r1", [parameter("hba1c_percent", 7.4, unit="%", low=4.0, high=5.6)])],
+    )
+    group = next(item for item in plan["avoid"] if item["id"] == "avoid_glycaemia_sugars_v1")
+    lab = next(item for item in group["evidence"] if item["kind"] == "lab")
+    assert lab["parameter_key"] == "hba1c_percent"
+    assert lab["value"] == 7.4
+    assert lab["measured_on"] == REPORT_DATE
+    assert lab["report_id"] == "r1"
+
+
+def test_avoid_evidence_points_at_the_condition_that_fired():
+    plan = build_plan(profile(conditions=["ckd"]), [])
+    group = next(item for item in plan["avoid"] if item["id"] == "ask_phosphate_additives_v1")
+    assert [item["label"] for item in group["evidence"]] == ["Chronic kidney disease"]
+    assert all(item["kind"] == "condition" for item in group["evidence"])
+
+
+def test_ckd_warns_about_potassium_chloride_salt_substitutes():
+    plan = build_plan(profile(conditions=["ckd"]), [])
+    group = next(
+        item
+        for item in plan["avoid"]
+        if item["id"] == "avoid_potassium_chloride_salt_substitute_v1"
+    )
+    assert group["severity"] == "avoid"
+    assert "potassium chloride" in group["items"][0]["label"].lower()
+    assert any(item["kind"] == "condition" for item in group["evidence"])
+
+
+def test_gout_avoid_and_limit_groups_split_by_severity():
+    plan = build_plan(profile(conditions=["gout"]), [])
+    severity = {group["id"]: group["severity"] for group in plan["avoid"]}
+    assert severity["avoid_gout_alcohol_organ_meats_v1"] == "avoid"
+    assert severity["limit_gout_purines_fructose_v1"] == "limit"
+
+
+def test_b12_low_asks_rather_than_listing_a_food_to_avoid():
+    plan = build_plan(
+        profile(),
+        [report("r1", [parameter("vitamin_b12_pg_ml", 150, unit="pg/mL", low=200)])],
+    )
+    group = next(item for item in plan["avoid"] if item["id"] == "ask_b12_fortified_foods_v1")
+    assert group["severity"] == "ask"
+    assert target_for(plan, "vitamin_b12")["proposed_value"] is None
+
+
+def test_hypothyroidism_group_does_not_claim_goitrogen_avoidance():
+    plan = build_plan(profile(conditions=["hypothyroidism"]), [])
+    group = next(item for item in plan["avoid"] if item["id"] == "ask_hypothyroidism_iodine_v1")
+    assert group["severity"] == "ask"
+    assert "does not claim that avoiding" in group["detail"]
+
+
+def test_avoid_table_is_well_formed():
+    from app.services.intake import AVOID_RULES, NUTRIENT_META
+
+    ids = [rule["id"] for rule in AVOID_RULES]
+    assert len(ids) == len(set(ids)), "avoid rule ids must be unique"
+    assert len(ids) >= 10
+    for rule in AVOID_RULES:
+        assert rule["severity"] in {"avoid", "limit", "ask"}
+        assert rule["confidence"] in {"established", "general_wellbeing", "clinician_only"}
+        assert rule["title"].strip() and rule["detail"].strip()
+        assert rule["conditions"] or rule["labs"], rule["id"]
+        assert rule["sources"] and all(url.startswith("https://") for url in rule["sources"])
+        assert rule["items"]
+        for trigger in rule["labs"]:
+            assert trigger["op"] in {">=", ">", "<=", "<", "below_ref"}
+        for item in rule["items"]:
+            assert item["label"].strip() and item["reason"].strip(), rule["id"]
+            assert item["examples"], rule["id"]
+            assert set(item["linked_nutrients"]) <= set(NUTRIENT_META), rule["id"]
+
+
+def test_every_avoid_rule_is_reachable_from_its_own_trigger():
+    from app.services.intake import AVOID_RULES
+
+    plan = build_plan(
+        profile(
+            conditions=[
+                "type_2_diabetes",
+                "hypertension",
+                "dyslipidaemia",
+                "ckd",
+                "gout",
+                "iron_deficiency_anaemia",
+                "vitamin_b12_deficiency",
+                "vitamin_d_deficiency",
+                "hypothyroidism",
+            ]
+        ),
+        [
+            report(
+                "r1",
+                [
+                    parameter("hba1c_percent", 7.4, unit="%", low=4.0, high=5.6),
+                    parameter("systolic_bp_mmhg", 150, unit="mmHg"),
+                    parameter("egfr_ml_min", 40, unit="mL/min", low=90),
+                    parameter("uric_acid_mg_dl", 8.0, unit="mg/dL", high=6.0),
+                    parameter("hemoglobin_g_dl", 10.0, unit="g/dL", low=12.0, high=15.0),
+                    parameter("vitamin_b12_pg_ml", 150, unit="pg/mL", low=200),
+                    parameter("vitamin_d_ng_ml", 15, unit="ng/mL", low=30),
+                    parameter("tsh_miu_l", 6.0, unit="mIU/L", high=4.5),
+                ],
+            )
+        ],
+    )
+    assert avoid_ids(plan) == {rule["id"] for rule in AVOID_RULES}
+
+
+def test_every_fired_avoid_group_carries_evidence_items_and_sources():
+    plan = build_plan(
+        profile(
+            conditions=["type_2_diabetes", "hypertension", "ckd", "gout", "iron_deficiency_anaemia"]
+        ),
+        [
+            report(
+                "r1",
+                [
+                    parameter("hba1c_percent", 7.4, unit="%", low=4.0, high=5.6),
+                    parameter("systolic_bp_mmhg", 150, unit="mmHg"),
+                    parameter("egfr_ml_min", 40, unit="mL/min", low=90),
+                    parameter("uric_acid_mg_dl", 8.0, unit="mg/dL", high=6.0),
+                    parameter("hemoglobin_g_dl", 10.0, unit="g/dL", low=12.0, high=15.0),
+                ],
+            )
+        ],
+    )
+    assert plan["avoid"]
+    for group in plan["avoid"]:
+        assert group["severity"] in {"avoid", "limit", "ask"}
+        assert group["detail"].strip()
+        assert group["sources"] and all(url.startswith("https://") for url in group["sources"])
+        assert group["evidence"], group["id"]
+        assert all(item["kind"] in {"lab", "condition"} for item in group["evidence"])
+        assert group["items"], group["id"]
+        for item in group["items"]:
+            assert item["label"].strip() and item["reason"].strip() and item["examples"]
+    assert any("not a statement that it is safe" in note for note in plan["notes"]), (
+        "the plan must say a food that is not listed is not declared safe"
+    )
