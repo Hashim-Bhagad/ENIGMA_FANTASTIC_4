@@ -142,7 +142,7 @@ def test_unresolved_findings_are_specific_and_never_only_an_unconfirmed_note():
         "goal_nutrient_unknown": ("cannot be compared",),
         "condition_carbohydrate_unknown": ("total carbohydrate value is missing",),
         "condition_sodium_unknown": ("sodium value is missing",),
-        "condition_pack_unsupported": ("No supported awareness pack covers",),
+        "condition_pack_unsupported": ("No specific checks cover",),
     }
     for name, profile, changes, portion in SCENARIOS:
         result = assess(profile, food(**changes), portion)
