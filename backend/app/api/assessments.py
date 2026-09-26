@@ -8,7 +8,6 @@ from app.db import get_session
 from app.errors import ApiError
 from app.models import Assessment, Product, Profile, RecommendationRun, User
 from app.rate_limit import rate_limit
-from app.services.alternatives import suggest_alternatives
 from app.schemas import (
     AssessmentHistory,
     AssessmentRequest,
@@ -20,6 +19,7 @@ from app.schemas import (
     StrictModel,
 )
 from app.security import current_user
+from app.services.alternatives import suggest_alternatives
 from app.services.assessment import assess
 from app.services.provenance import product_provenance
 from app.services.recommendations import select_replacements

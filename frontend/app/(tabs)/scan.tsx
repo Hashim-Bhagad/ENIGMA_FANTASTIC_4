@@ -92,7 +92,7 @@ export default function ScanScreen() {
     </Card>
     <Card style={st.fssaiCard}>
       <View><Text style={st.cardTitle}>Verify an FSSAI license</Text><Text style={st.cardSub}>Check the license number printed on a food package.</Text></View>
-      <Field label="FSSAI LICENSE NUMBER" value={fssaiNumber} onChangeText={value => { setFssaiNumber(value.replace(/[^0-9]/g, '').slice(0, 14)); setFssaiError(''); }} placeholder="14 digits" keyboardType="numeric" onSubmitEditing={() => void verifyFssai()} returnKeyType="done" />
+      <Field label="FSSAI license number" value={fssaiNumber} onChangeText={value => { setFssaiNumber(value.replace(/[^0-9]/g, '').slice(0, 14)); setFssaiError(''); }} placeholder="14 digits" keyboardType="numeric" onSubmitEditing={() => void verifyFssai()} returnKeyType="done" />
       <Button title="Verify license" icon="shield-check-outline" loading={fssaiBusy} disabled={fssaiBusy} onPress={() => void verifyFssai()} />
       {fssaiError ? <View style={st.message}><MaterialCommunityIcons name="alert-circle-outline" size={16} color={colors.amber} /><Text accessibilityRole="alert" style={st.messageText}>{fssaiError}</Text></View> : null}
       {fssaiResult ? <View style={st.fssaiResult}>
@@ -152,8 +152,8 @@ const st = StyleSheet.create({
   productIcon: { width: 50, height: 50, borderRadius: radius.avatar, alignItems: 'center', justifyContent: 'center' },
   brand: { color: colors.muted, fontSize: 12, lineHeight: 16, fontWeight: '800', letterSpacing: .5, marginBottom: 3 },
   pressed: { opacity: 0.9 },
-  fssaiCard: { gap: 13 },
+  fssaiCard: { gap: 14 },
   fssaiResult: { gap: 7, borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 13 },
-  resultDetail: { color: colors.ink, fontSize: 13, lineHeight: 19 },
-  resultNote: { color: colors.muted, fontSize: 11, lineHeight: 16, marginTop: 3 },
+  resultDetail: { ...typography.meta, color: colors.ink },
+  resultNote: { ...typography.caption, color: colors.muted, marginTop: 3 },
 });
