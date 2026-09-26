@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -7,6 +8,7 @@ from app.db import get_session
 from app.errors import ApiError
 from app.models import Assessment, Product, Profile, RecommendationRun, User
 from app.rate_limit import rate_limit
+from app.services.alternatives import suggest_alternatives
 from app.schemas import (
     AssessmentHistory,
     AssessmentRequest,
@@ -15,6 +17,7 @@ from app.schemas import (
     ProfileData,
     RecommendationRecord,
     RecommendationRequest,
+    StrictModel,
 )
 from app.security import current_user
 from app.services.assessment import assess
@@ -22,6 +25,26 @@ from app.services.provenance import product_provenance
 from app.services.recommendations import select_replacements
 
 router = APIRouter(prefix="/api", tags=["assessments and replacements"])
+
+
+class IngredientAlternativesRequest(StrictModel):
+    ingredients: list[str] = Field(min_length=1, max_length=40)
+
+
+@router.post("/ingredient-alternatives")
+def ingredient_alternatives(
+    body: IngredientAlternativesRequest,
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+):
+    """Look up reviewed swaps when ingredient wording is ambiguous."""
+    profile = owned_profile(session, user.id)
+    data = ProfileData.model_validate(profile.data)
+    return {
+        "alternatives": suggest_alternatives(body.ingredients, data.allergies),
+        "catalog_version": "healthy-swaps-2026-09-26.1",
+        "note": "Suggestions are recipe ideas, not allergy-safety confirmation. Verify the full ingredient and advisory label and cross-contact with the manufacturer or cook.",
+    }
 
 
 def assessment_response(record: Assessment):

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -7,9 +7,18 @@ import { FindingsList, findingCount, statusTone } from '@/src/components/finding
 import { useApp } from '@/src/state/AppContext';
 import { colors } from '@/src/theme';
 import { FoodFacts } from '@/src/components/food-facts';
+import { api, type IngredientAlternatives } from '@/src/api/client';
 
 export default function AssessmentScreen() {
-  const { assessment } = useApp();
+  const { assessment, token } = useApp();
+  const [alternatives, setAlternatives] = useState<IngredientAlternatives | null>(null);
+  const [alternativeError, setAlternativeError] = useState('');
+  const ambiguity = assessment?.result.unresolved.find(item => item.code === 'ambiguous_ingredients');
+  const ingredientTerms = ambiguity?.evidence || [];
+  useEffect(() => {
+    setAlternatives(null); setAlternativeError('');
+    if (token && ingredientTerms.length) void api.ingredientAlternatives(token, ingredientTerms).then(setAlternatives).catch(() => setAlternativeError('Ingredient alternatives could not be loaded.'));
+  }, [token, assessment?.id, ingredientTerms.join('|')]);
   if (!assessment) return <Screen><PageHeader eyebrow="Your label check" title="No assessment yet" subtitle="Review a product label and ask the backend to assess it first." back /><Button title="Scan or search a product" icon="barcode-scan" onPress={() => router.push('/(tabs)/scan')} /></Screen>;
   const result = assessment.result;
   const isMeal = assessment.food.source.kind === 'dish';
@@ -34,6 +43,7 @@ export default function AssessmentScreen() {
     {isMeal ? <Card style={st.scope}><View style={{ flex: 1, gap: 8 }}><Text style={st.findingTitle}>Before cooking or ordering</Text>{result.conflicts.map((item, index) => <Text selectable key={index} style={st.coverage}>Ask whether the cook can omit or replace {item.evidence?.length ? item.evidence.join(", ") : item.affects?.join(", ") || "the flagged ingredient"}. Confirm sauces, toppings and shared utensils before reassessing the changed meal.</Text>)}{!result.conflicts.length ? <Text style={st.coverage}>Ask the cook to confirm the full ingredients and shared equipment. A recipe reference cannot establish what the restaurant serves.</Text> : null}<Text style={st.coverage}>Removing an ingredient from this list records a proposed change. It does not confirm the change happened in the kitchen.</Text></View></Card> : null}
     <SectionTitle title="Findings" action={`${findingCount(result)} items`} />
     <FindingsList result={result} />
+    {ambiguity ? <Card style={{ gap: 8, backgroundColor: colors.lavenderSoft }}><Text style={st.findingTitle}>Possible ingredient swaps</Text>{alternatives?.alternatives.length ? alternatives.alternatives.map((item, index) => <Text key={`${item.matched_ingredient}-${index}`} style={st.coverage}>{item.matched_ingredient}: {item.alternatives.join(' or ')}. {item.reason}</Text>) : <Text style={st.coverage}>{alternatives ? 'No reviewed swap matches this ambiguous ingredient in the current catalog.' : alternativeError || 'Checking the ingredient swap catalog…'}</Text>}{alternatives ? <Text style={st.warningText}>{alternatives.note}</Text> : null}</Card> : null}
     {result.source_warnings.map((warning, index) => <Card key={`warning-${index}`} style={st.warning}><MaterialCommunityIcons name="information-outline" size={17} color={colors.amber} /><Text style={st.warningText}>{warning}</Text></Card>)}
     {result.ingredient_findings?.length ? <Card style={{ gap: 10 }}><Text style={st.findingTitle}>Recognized ingredient names</Text>{result.ingredient_findings.map((item, index) => <Text selectable key={index} style={st.coverage}>“{item.raw_evidence}” → {(item.canonical_identity || item.subtype).replaceAll('_', ' ')}</Text>)}<Text style={st.coverage}>Names matched against vocabulary {result.ingredient_taxonomy_version || 'unknown'}. Recognition does not establish a nutrient amount.</Text></Card> : null}
     {result.ingredient_findings?.length ? <Card style={st.scope}><MaterialCommunityIcons name="format-list-bulleted" size={18} color={colors.blue} /><Text style={st.coverage}>Ingredient terms are matched against a versioned vocabulary (v{result.ingredient_taxonomy_version ?? 'unknown'}). A recognized name is not a nutrient amount, proof of hidden contents, or a clinical conclusion.</Text></Card> : null}

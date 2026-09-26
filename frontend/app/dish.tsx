@@ -3,7 +3,7 @@ import { Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-nat
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Button, Card, Field, PageHeader, Pill, Screen, SectionTitle } from '@/src/components/ui';
 import { FindingsList, findingCount, statusTone } from '@/src/components/findings';
-import { api, dishStatusExplanation, REFERENCE_MATCH_NOTE, referenceSuggestionLabel, TYPE_AHEAD_DELAY_MS, typeAheadTerm, type DishOptions, type Recipe, type ReferenceFood } from '@/src/api/client';
+import { api, dishStatusExplanation, REFERENCE_MATCH_NOTE, referenceSuggestionLabel, TYPE_AHEAD_DELAY_MS, typeAheadTerm, type DishOptions, type IngredientAlternatives, type Recipe, type ReferenceFood } from '@/src/api/client';
 import { useApp, type DishDraft, type DishIngredientDraft } from '@/src/state/AppContext';
 import { nutrientFields } from '@/src/data/nutrients';
 import { colors, radius } from '@/src/theme';
@@ -112,10 +112,18 @@ export default function DishScreen() {
   const [message, setMessage] = useState('');
   const [options, setOptions] = useState<DishOptions | null>(null);
   const [optionsError, setOptionsError] = useState('');
+  const [ingredientAlternatives, setIngredientAlternatives] = useState<IngredientAlternatives | null>(null);
   /** The draft the visible result was produced from, so a changed meal is never shown as checked. */
   const [checked, setChecked] = useState<{ signature: string; declarationsConfirmed: boolean } | null>(null);
   const recipeRequest = useRef(0);
   const debouncedQuery = useDebouncedValue(query, TYPE_AHEAD_DELAY_MS);
+
+  const ambiguousFinding = dishResult?.assessment.unresolved.find(item => item.code === 'ambiguous_ingredients');
+  useEffect(() => {
+    setIngredientAlternatives(null);
+    const terms = ambiguousFinding?.evidence || [];
+    if (token && terms.length) void api.ingredientAlternatives(token, terms).then(setIngredientAlternatives).catch(() => setIngredientAlternatives(null));
+  }, [token, dishResult?.id, ambiguousFinding?.evidence?.join('|')]);
 
   useEffect(() => {
     if (!token) return;
@@ -243,6 +251,7 @@ export default function DishScreen() {
         </View>
       </Card>
       <FindingsList result={dishResult.assessment} />
+      {ambiguousFinding ? <Card style={{ gap: 8, backgroundColor: colors.lavenderSoft }}><Text style={st.title}>Possible ingredient swaps</Text>{ingredientAlternatives?.alternatives.length ? ingredientAlternatives.alternatives.map((item, index) => <Text key={`${item.matched_ingredient}-${index}`} style={st.copy}>{item.matched_ingredient}: {item.alternatives.join(' or ')}. {item.reason}</Text>) : <Text style={st.copy}>{ingredientAlternatives ? 'No reviewed swap matches this ambiguous ingredient in the current catalog.' : 'Checking the ingredient swap catalog…'}</Text>}{ingredientAlternatives ? <Text style={st.meta}>{ingredientAlternatives.note}</Text> : null}</Card> : null}
       <Button title="Clear this meal check" icon="close-circle-outline" secondary onPress={() => { clearDish(); setChecked(null); setMessage(''); }} />
     </> : null}
   </Screen>;

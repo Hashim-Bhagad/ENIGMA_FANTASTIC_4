@@ -73,6 +73,7 @@ export type Recommendation = {
   excluded: { product_id: string; reason: string }[];
   ranking_method: string; fallback_reason?: string | null; message: string;
 };
+export type IngredientAlternatives = { alternatives: { ingredient: string; matched_ingredient: string; alternatives: string[]; reason: string; review_required: boolean }[]; catalog_version: string; note: string };
 export type Photo = { uri: string; name?: string | null; mimeType?: string | null };
 
 export type ProfilesGuide = {
@@ -336,6 +337,7 @@ export const api = {
   },
   assessment: (token: string, id: string) => request<Assessment>(`/api/assessments/${encodeURIComponent(id)}`, token),
   recommend: (token: string, assessmentId: string, preferences?: string) => request<Recommendation>('/api/recommendations', token, { method: 'POST', body: JSON.stringify({ assessment_id: assessmentId, preferences }) }),
+  ingredientAlternatives: (token: string, ingredients: string[]) => request<IngredientAlternatives>('/api/ingredient-alternatives', token, { method: 'POST', body: JSON.stringify({ ingredients }) }),
   dishesOptions: (token: string) => request<DishOptions>('/api/dishes/options', token),
   assessDish: (token: string, payload: DishPayload) => request<DishAssessment>('/api/dishes/assess', token, { method: 'POST', body: JSON.stringify(payload) }),
   conditions: (token: string) => request<ConditionRegistry>('/api/conditions', token),
