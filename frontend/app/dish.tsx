@@ -270,7 +270,7 @@ export default function DishScreen() {
   const alternativeViews = dishAlternativeViews(dishResult?.dish.alternatives);
 
   return <Screen>
-    <PageHeader title="What goes into your meal?" subtitle="Start from a recipe or enter ingredients. Make the check reflect the food you plan to eat." back />
+    <PageHeader title="What goes into your meal?" subtitle="Start from a recipe or enter ingredients. Make the check reflect the food you plan to eat." back backFallback="/(tabs)/scan" />
     <View style={st.modes}>{(['home', 'restaurant'] as const).map(value => <Pressable key={value} accessibilityRole="button" accessibilityState={{ selected: mode === value }} onPress={() => chooseMode(value)} style={[st.mode, mode === value && st.modeActive]}><MaterialCommunityIcons name={value === 'home' ? 'home-outline' : 'silverware-fork-knife'} size={20} color={mode === value ? colors.primary : colors.muted} /><Text style={[st.modeText, mode === value && { color: colors.primary }]}>{value === 'home' ? 'Cooking at home' : 'Eating out'}</Text></Pressable>)}</View>
     <Card style={st.intro}><Text style={st.title}>{mode === 'home' ? 'Check your recipe before cooking' : 'Prepare questions for the kitchen'}</Text><Text style={st.copy}>{mode === 'home' ? 'Adjust the ingredient list, including sauces, oil, salt, toppings and additions. Matches show what conflicts with your saved restrictions.' : 'A recipe describes one version of a dish. Ask the cook to confirm ingredients and request changes before treating it as your actual meal.'}</Text><Text style={st.meta}>How this check works: {HOW_THIS_WORKS}</Text></Card>
 

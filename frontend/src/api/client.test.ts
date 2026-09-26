@@ -469,7 +469,7 @@ describe('api client dish draft contract', () => {
 
 describe('api client dish assess contract', () => {
   beforeEach(() => { vi.resetModules(); delete process.env.EXPO_PUBLIC_API_URL; });
-  afterEach(() => { vi.unstubAllGlobals(); vi.resetModules(); });
+  afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); vi.resetModules(); });
 
   it('posts the listed ingredients only, with no gram or portion field', async () => {
     const fetchMock = vi.fn(async (_url: string, _init: FetchInit) => ({ ok: true, status: 201, json: async () => ({ id: 'd-1', dish: { name: 'Poha', matches: [], unmatched: [], estimate: { available: false, basis: null, nutrients: {}, total_grams: null, assumptions: [], matched_count: 0, matched_grams: null, excluded: [], coverage_note: '' } }, assessment: {} }) }));
@@ -512,6 +512,25 @@ describe('api client dish assess contract', () => {
     const profile = { id: 'p-1', version: 1, data: { conditions: [], allergies: [], ingredient_exclusions: [], limits: [], goals: [], preferences: '' } };
     expect(() => dishAssessmentPayload(profile, { name: '  ', ingredients: [{ text: 'Poha', referenceCode: null }], cookingNotes: [], declarationsConfirmed: false })).toThrow(/dish name/i);
     expect(() => dishAssessmentPayload(profile, { name: 'Poha', ingredients: [{ text: '   ', referenceCode: null }], cookingNotes: [], declarationsConfirmed: false })).toThrow(/at least one ingredient/i);
+  });
+
+  it('waits past the shared default for a check that runs two provider calls', async () => {
+    vi.useFakeTimers();
+    // A fetch that only settles when the client aborts, so the timeout path is the sole outcome.
+    vi.stubGlobal('fetch', vi.fn((_url: string, init: FetchInit) => new Promise<never>((_resolve, reject) => {
+      init.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+    })));
+    const { api, TIMEOUT_MESSAGE } = await import('./client');
+    const payload = { profile_id: 'p-1', profile_version: 1, name: 'Poha', ingredients: [{ text: 'Poha' }], cooking_notes: [], declarations_confirmed: true };
+    let settled = false;
+    const expectation = expect(api.assessDish('token', payload)).rejects.toMatchObject({ code: 'timeout', message: TIMEOUT_MESSAGE });
+    void expectation.then(() => { settled = true; });
+    // The wording review and the swap suggestions run in sequence server-side, so abandoning the
+    // call at the shared 15 s default would report a timeout the server was still working on.
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(75_000);
+    await expectation;
   });
 });
 
@@ -725,5 +744,14 @@ describe('meal-check and report display helpers', () => {
     expect(intakeProposedLine({ ...clinicianOnly, confidence: 'established', requires_clinician: false, proposed_value: 1500, direction: 'lower' })).toBe('Proposed daily limit: at most 1500 mg');
     expect(intakeBaselineLine({ ...clinicianOnly, baseline_value: 2100 })).toBe('Recorded baseline: 2100 mg · condition');
     expect(intakeBaselineLine(clinicianOnly)).toBe('No recorded baseline · condition');
+  });
+});
+
+describe('back navigation cannot dead-end', () => {
+  it('pops when there is history and replaces with the fallback when there is none', async () => {
+    const { backAction, HOME_TAB } = await import('../navigation');
+    expect(backAction(true)).toEqual({});
+    expect(backAction(false)).toEqual({ replace: HOME_TAB });
+    expect(backAction(false, '/(tabs)/scan')).toEqual({ replace: '/(tabs)/scan' });
   });
 });

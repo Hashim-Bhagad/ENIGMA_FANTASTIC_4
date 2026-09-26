@@ -37,7 +37,7 @@ export default function AssessmentScreen() {
     setAlternatives(null); setAlternativeError('');
     if (token && ingredientTerms.length) void api.ingredientAlternatives(token, ingredientTerms).then(setAlternatives).catch(() => setAlternativeError('Ingredient alternatives could not be loaded.'));
   }, [token, assessment?.id, ingredientTerms.join('|')]);
-  if (!assessment) return <Screen><PageHeader eyebrow="Your label check" title="No assessment yet" subtitle="Review a product label and ask the backend to assess it first." back /><Button title="Scan or search a product" icon="barcode-scan" onPress={() => router.push('/(tabs)/scan')} /></Screen>;
+  if (!assessment) return <Screen><PageHeader eyebrow="Your label check" title="No assessment yet" subtitle="Review a product label and ask the backend to assess it first." back backFallback="/(tabs)/history" /><Button title="Scan or search a product" icon="barcode-scan" onPress={() => router.push('/(tabs)/scan')} /></Screen>;
   const result = assessment.result;
   const isMeal = assessment.food.source.kind === 'dish';
   const tone = statusTone(result.status);

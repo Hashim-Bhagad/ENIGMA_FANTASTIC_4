@@ -18,7 +18,7 @@ export default function ReplacementsScreen() {
   const verified = recommendation ? recommendation.candidates.filter(candidate => candidate.verified) : [];
   const unverified = recommendation ? [...recommendation.candidates.filter(candidate => !candidate.verified), ...(recommendation.needs_review || [])] : [];
   return <Screen>
-    <PageHeader title="Eligible replacements" subtitle={`Options checked against your profile for ${product.name}.`} back />
+    <PageHeader title="Eligible replacements" subtitle={`Options checked against your profile for ${product.name}.`} back backFallback="/assessment" />
     <Card style={st.context}><View style={st.contextIcon}><MaterialCommunityIcons name="shield-check-outline" size={20} color={colors.primary} /></View><View style={{ flex: 1 }}><Text style={st.title}>Eligibility comes first</Text><Text style={st.copy}>The backend filters conflicts and missing required checks before comparing nutrients. A candidate still needs its current package confirmed.</Text></View></Card>
     {busy && !recommendation && <Card style={st.empty}><MaterialCommunityIcons name="progress-clock" size={26} color={colors.primary} /><Text style={st.copy}>Checking comparable products…</Text></Card>}
     {error ? <Card style={st.error}><Text style={st.errorText}>{error}</Text><Button title="Try again" compact secondary onPress={retry} /></Card> : null}
@@ -32,7 +32,7 @@ export default function ReplacementsScreen() {
       {unverified.length ? <View style={{ gap: 10 }}>{unverified.map((candidate, index) => <CandidateCard key={`unverified-${candidate.product_id}-${index}`} candidate={candidate} />)}</View> : <Card style={st.empty}><Text style={st.title}>No additional record needs review</Text><Text style={st.copy}>This search returned no additional records for the review tier.</Text></Card>}
       {recommendation.excluded.length > 0 && <Card style={st.excluded}><Text style={st.title}>{recommendation.excluded.length} catalog options excluded</Text><Text style={st.copy}>They did not meet the recorded conflict, information, category or nutrient-comparison checks.</Text></Card>}
     </>}
-    <Button title="Back to assessment" icon="arrow-left" secondary onPress={() => router.back()} />
+    <Button title="Back to assessment" icon="arrow-left" secondary onPress={() => (router.canGoBack() ? router.back() : router.replace('/assessment'))} />
   </Screen>;
 }
 

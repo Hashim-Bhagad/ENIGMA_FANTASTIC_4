@@ -4,12 +4,18 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { colors, radius, space, typography } from '@/src/theme';
+import { HOME_TAB, backAction } from '@/src/navigation';
 
 export function Screen({ children, scroll = true, style }: React.PropsWithChildren<{ scroll?: boolean; style?: StyleProp<ViewStyle> }>) {
   return <SafeAreaView edges={['top']} style={s.safe}><KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={[s.frame, style]}>{scroll ? <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>{children}</ScrollView> : children}</KeyboardAvoidingView></SafeAreaView>;
 }
-export function PageHeader({ eyebrow, title, subtitle, back = false, right }: { eyebrow?: string; title: string; subtitle?: string; back?: boolean; right?: React.ReactNode }) {
-  return <View style={s.headerRow}>{back && <Pressable accessibilityRole="button" accessibilityLabel="Go back" onPress={() => router.back()} style={({ pressed }) => [s.back, pressed && s.pressed]}><MaterialCommunityIcons name="arrow-left" size={22} color={colors.ink} /></Pressable>}<View style={{ flex: 1 }}>
+export function PageHeader({ eyebrow, title, subtitle, back = false, backFallback = HOME_TAB, right }: { eyebrow?: string; title: string; subtitle?: string; back?: boolean; backFallback?: string; right?: React.ReactNode }) {
+  const goBack = () => {
+    const fallback = backAction(router.canGoBack(), backFallback);
+    if (fallback.replace) router.replace(fallback.replace as never);
+    else router.back();
+  };
+  return <View style={s.headerRow}>{back && <Pressable accessibilityRole="button" accessibilityLabel="Go back" onPress={goBack} style={({ pressed }) => [s.back, pressed && s.pressed]}><MaterialCommunityIcons name="arrow-left" size={22} color={colors.ink} /></Pressable>}<View style={{ flex: 1 }}>
     {eyebrow ? <Text style={s.eyebrow}>{eyebrow.toUpperCase()}</Text> : null}<Text accessibilityRole="header" style={s.title}>{title}</Text>{subtitle ? <Text style={s.subtitle}>{subtitle}</Text> : null}
   </View>{right}</View>;
 }

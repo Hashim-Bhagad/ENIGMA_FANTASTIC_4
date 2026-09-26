@@ -84,7 +84,7 @@ export default function ReviewScreen() {
   };
 
   return <Screen>
-    <PageHeader title="Review the label" subtitle="Correct the observations using the product in your hand." back />
+    <PageHeader title="Review the label" subtitle="Correct the observations using the product in your hand." back backFallback="/(tabs)/scan" />
     <Card style={st.product}><View style={[st.productIcon, { backgroundColor: product.color }]}><Text style={{ fontSize: 27 }}>{product.icon}</Text></View><View style={{ flex: 1 }}><Pill label={product.category.toUpperCase()} tone="purple" /><Text style={st.productName}>{name}</Text><Text style={st.brand}>{product.brand} · {barcodeValue.trim() || 'barcode not entered'}</Text></View></Card>
     {labelPhoto && <Card style={st.photoCard}><View style={st.photoHeading}><View style={{ flex: 1 }}><Text style={st.photoTitle}>Label photo attached</Text><Text style={st.photoCopy}>Model extraction can be wrong. Compare each field with the actual package.</Text></View><Pressable accessibilityRole="button" accessibilityLabel="Remove label photo" onPress={() => setLabelPhoto(null)}><MaterialCommunityIcons name="close-circle-outline" size={21} color={colors.muted} /></Pressable></View><Image source={{ uri: labelPhoto }} resizeMode="cover" style={st.photo} /></Card>}
     {original?.source.warnings?.map((warning, index) => <Card key={index} style={st.warning}><MaterialCommunityIcons name="information-outline" size={17} color={colors.amber} /><Text style={st.warningText}>{warning}</Text></Card>)}

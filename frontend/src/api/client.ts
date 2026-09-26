@@ -584,6 +584,17 @@ const DEFAULT_TIMEOUT_MS = 15_000;
 const PHOTO_TIMEOUT_MS = 60_000;
 const DRAFT_TIMEOUT_MS = 45_000;
 const REPORT_TIMEOUT_MS = 90_000;
+/**
+ * A meal check can run two provider calls in sequence — the wording review, then the swap
+ * suggestions — so the shared 15 s default is far too short for it.
+ */
+const DISH_TIMEOUT_MS = 90_000;
+/**
+ * Endpoints that wait on an outside provider (Open Food Facts for a barcode or live search,
+ * Apify for a live recipe search, TheVerifico for a licence, and one model ranking call for
+ * recommendations). Each is a network round trip outside our control, so 15 s is too short.
+ */
+const PROVIDER_TIMEOUT_MS = 45_000;
 export const TIMEOUT_MESSAGE = 'The server did not respond in time. Check your connection and try again.';
 
 // --- Fitting a phone photo under a route's upload limit ------------------------------
@@ -755,10 +766,10 @@ export const api = {
   saveProfile: (token: string, data: ProfileData, expectedVersion: number | null) => request<SavedProfile>('/api/profiles/me', token, { method: 'PUT', body: JSON.stringify({ expected_version: expectedVersion, data }) }),
   profilesGuide: (token: string, profileId: string, profileVersion: number) => request<ProfilesGuide>('/api/profiles/guide', token, { method: 'POST', body: JSON.stringify({ profile_id: profileId, profile_version: profileVersion }) }),
   catalog: (token: string) => request<CatalogResponse>('/api/products?limit=50', token),
-  search: (token: string, query: string, live = true) => request<CatalogResponse>('/api/products/search?q=' + encodeURIComponent(query) + `&include_live=${live}`, token),
-  recipes: (token: string, query: string) => request<RecipePage>('/api/recipes?q=' + encodeURIComponent(query), token),
-  barcode: (token: string, code: string) => request<{ id: string; food: FoodObservation; updated_at: string; lookup_source: string }>(`/api/products/barcode/${encodeURIComponent(code)}`, token),
-  verifyFssai: (token: string, fssaiNumber: string) => request<FssaiVerification>('/api/verification/fssai', token, { method: 'POST', body: JSON.stringify({ fssai_number: fssaiNumber }) }),
+  search: (token: string, query: string, live = true) => request<CatalogResponse>('/api/products/search?q=' + encodeURIComponent(query) + `&include_live=${live}`, token, {}, PROVIDER_TIMEOUT_MS),
+  recipes: (token: string, query: string) => request<RecipePage>('/api/recipes?q=' + encodeURIComponent(query), token, {}, PROVIDER_TIMEOUT_MS),
+  barcode: (token: string, code: string) => request<{ id: string; food: FoodObservation; updated_at: string; lookup_source: string }>(`/api/products/barcode/${encodeURIComponent(code)}`, token, {}, PROVIDER_TIMEOUT_MS),
+  verifyFssai: (token: string, fssaiNumber: string) => request<FssaiVerification>('/api/verification/fssai', token, { method: 'POST', body: JSON.stringify({ fssai_number: fssaiNumber }) }, PROVIDER_TIMEOUT_MS),
   provenance: (token: string, id: string) => request<ProductProvenance>(`/api/products/${encodeURIComponent(id)}/provenance`, token),
   referenceFoods: (token: string, q: string, limit?: number) => request<ReferenceFoodsResult>(`/api/reference-foods?q=${encodeURIComponent(q)}${limit == null ? '' : `&limit=${limit}`}`, token),
   extractLabel: async (token: string, photo: Photo, meta?: LabelExtractionMeta) => {
@@ -784,10 +795,10 @@ export const api = {
     return { assessments: page.assessments, total: page.total ?? offset + page.assessments.length };
   },
   assessment: (token: string, id: string) => request<Assessment>(`/api/assessments/${encodeURIComponent(id)}`, token),
-  recommend: (token: string, assessmentId: string, preferences?: string) => request<Recommendation>('/api/recommendations', token, { method: 'POST', body: JSON.stringify({ assessment_id: assessmentId, preferences }) }),
+  recommend: (token: string, assessmentId: string, preferences?: string) => request<Recommendation>('/api/recommendations', token, { method: 'POST', body: JSON.stringify({ assessment_id: assessmentId, preferences }) }, PROVIDER_TIMEOUT_MS),
   ingredientAlternatives: (token: string, ingredients: string[]) => request<IngredientAlternatives>('/api/ingredient-alternatives', token, { method: 'POST', body: JSON.stringify({ ingredients }) }),
   dishesOptions: (token: string) => request<DishOptions>('/api/dishes/options', token),
-  assessDish: (token: string, payload: DishPayload) => request<DishAssessment>('/api/dishes/assess', token, { method: 'POST', body: JSON.stringify(payload) }),
+  assessDish: (token: string, payload: DishPayload) => request<DishAssessment>('/api/dishes/assess', token, { method: 'POST', body: JSON.stringify(payload) }, DISH_TIMEOUT_MS),
   /** Ask the model for a starting ingredient list; nothing is checked until the user runs it. */
   draftDish: (token: string, name: string) => request<DishDraftResponse>('/api/dishes/draft', token, { method: 'POST', body: JSON.stringify({ name }) }, DRAFT_TIMEOUT_MS),
   conditions: (token: string) => request<ConditionRegistry>('/api/conditions', token),
