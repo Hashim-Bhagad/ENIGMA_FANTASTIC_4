@@ -82,7 +82,8 @@ def test_matched_and_weighed_dish_produces_a_portion_contribution(db_engine):
     assert contribution["daily_limit_percent"] == 8
 
 
-def test_unmatched_ingredient_produces_unknowns_and_no_estimate(db_engine):
+def test_partial_estimate_covers_matched_ingredients_and_names_what_it_left_out(db_engine):
+    """A reference table is not a recipe book: unmatched salt/sugar must not kill the estimate."""
     with Session(db_engine) as session:
         seed(session, "A001", "Rice", "100g_edible_portion", {"sodium_mg": 5})
         seed(session, "B001", "Lentils", "100g_edible_portion", {"sodium_mg": 10})
@@ -90,7 +91,9 @@ def test_unmatched_ingredient_produces_unknowns_and_no_estimate(db_engine):
         body = dish_request(
             ingredients=[
                 {"text": "Rice", "reference_code": "A001", "grams": 100},
+                {"text": "Lentils", "reference_code": "B001", "grams": 100},
                 {"text": "Unicorn steak", "grams": 100},
+                {"text": "Salt", "grams": 3},
             ]
         )
         dish = build_dish(session, body)
@@ -102,14 +105,18 @@ def test_unmatched_ingredient_produces_unknowns_and_no_estimate(db_engine):
         _, result = assess_dish(session, profile, body)
 
     estimate = dish["block"]["estimate"]
-    assert estimate["available"] is False
-    assert estimate["basis"] is None
-    assert estimate["nutrients"] == {}
-    assert estimate["total_grams"] is None
-    assert [item["input_text"] for item in dish["block"]["unmatched"]] == ["Unicorn steak"]
-    assert dish["block"]["unmatched"][0]["reason"]
-    assert dish["food"].nutrients == {}
-    assert any(item["code"] == "limit_nutrient_unknown" for item in result["unresolved"])
+    assert estimate["available"] is True
+    assert estimate["basis"] == "100g"
+    assert estimate["matched_count"] == 2
+    assert estimate["matched_grams"] == 200
+    # Sodium per 100 g of the two weighed references: (5*1 + 10*1) / 200 * 100 = 7.5 mg.
+    assert estimate["nutrients"]["sodium_mg"] == 7.5
+    assert {item["input_text"] for item in estimate["excluded"]} == {"Unicorn steak", "Salt"}
+    assert all(item["reason"] for item in estimate["excluded"])
+    assert "2 of 4" in estimate["coverage_note"]
+    assert "Left out" in estimate["coverage_note"]
+    assert any("floor" in warning for warning in dish["food"].source.warnings)
+    assert any(item["code"] == "limit_daily_contribution" for item in result["considerations"])
 
 
 def test_ingredient_without_grams_yields_no_estimate(db_engine):
@@ -308,3 +315,25 @@ def test_unconfirmed_dish_blockers_speak_about_the_meal_check_not_a_pack(client,
     assert not any(
         "photograph the ingredient panel" in (item.get("next_step") or "") for item in findings
     )
+
+
+def test_exclusion_list_names_each_ingredient_once_and_never_a_weighed_one(db_engine):
+    with Session(db_engine) as session:
+        seed(session, "A001", "Rice", "100g_edible_portion", {"sodium_mg": 5})
+        session.commit()
+        dish = build_dish(
+            session,
+            dish_request(
+                ingredients=[
+                    {"text": "Rice", "reference_code": "A001", "grams": 100},
+                    {"text": "Rice", "reference_code": "A001"},
+                    {"text": "Salt", "grams": 2},
+                ]
+            ),
+        )
+    estimate = dish["block"]["estimate"]
+    listed = [item["input_text"] for item in estimate["excluded"]]
+    assert listed.count("Salt") == 1, "an unmatched ingredient is listed once"
+    assert "Rice" in listed, "a matched but unweighed ingredient is left out and named"
+    assert estimate["matched_count"] == 1
+    assert estimate["matched_grams"] == 100

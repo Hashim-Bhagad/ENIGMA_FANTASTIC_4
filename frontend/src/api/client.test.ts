@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  allergenLabel, confidenceLabel, dishStatusExplanation, EU_ALLERGENS, evidenceReportLabel, formatEvidence,
-  formatReferenceRange, isNutrient, parameterStatusTone, referenceSuggestionLabel, TYPE_AHEAD_DELAY_MS,
+  allergenLabel, attachReferenceToRows, confidenceLabel, dishStatusExplanation, estimateCoverageLine, EU_ALLERGENS,
+  evidenceReportLabel, formatEvidence, formatReferenceRange, ingredientRowKeyFor, isNutrient,
+  parameterStatusTone, PARTIAL_ESTIMATE_FLOOR_NOTE, referenceSuggestionLabel, TYPE_AHEAD_DELAY_MS,
   TYPE_AHEAD_MIN_CHARS, typeAheadTerm,
 } from './client';
 
@@ -279,5 +280,38 @@ describe('meal-check and report display helpers', () => {
     expect(isNutrient('sodium_mg')).toBe(true);
     expect(isNutrient('energy_kcal')).toBe(true);
     expect(isNutrient('vitamin_d_ug')).toBe(false);
+  });
+
+  it('reads a partial estimate as coverage of the weighed ingredients', () => {
+    const estimate = { available: true, basis: '100g', nutrients: {}, total_grams: 200, assumptions: [], matched_count: 2, matched_grams: 200, excluded: [], coverage_note: '' };
+    expect(estimateCoverageLine(estimate)).toBe('Estimated from 2 weighed ingredients · 200 g counted');
+    expect(estimateCoverageLine({ ...estimate, matched_count: 1 })).toBe('Estimated from 1 weighed ingredient · 200 g counted');
+    expect(estimateCoverageLine({ ...estimate, matched_grams: null })).toBe('Estimated from 2 weighed ingredients');
+    expect(estimateCoverageLine({ ...estimate, available: false })).toMatch(/^No nutrient estimate/);
+  });
+
+  it('states that a partial estimate is a floor, never the whole dish', () => {
+    expect(PARTIAL_ESTIMATE_FLOOR_NOTE).toMatch(/floor/i);
+    expect(PARTIAL_ESTIMATE_FLOOR_NOTE).toMatch(/understated/i);
+  });
+
+  it('finds the ingredient row a result row came from', () => {
+    const rows = [{ key: 'a', text: 'Salt' }, { key: 'b', text: '  Paneer  ' }, { key: 'c', text: 'salt' }];
+    expect(ingredientRowKeyFor(rows, 'paneer')).toBe('b');
+    expect(ingredientRowKeyFor(rows, 'SALT')).toBe('a');
+    expect(ingredientRowKeyFor(rows, 'ghee')).toBeNull();
+  });
+
+  it('attaches a chosen reference to that row only, leaving the rest untouched', () => {
+    const rows = [
+      { key: 'a', text: 'Salt', referenceCode: null as string | null, grams: '' },
+      { key: 'b', text: 'Paneer', referenceCode: null as string | null, grams: '100' },
+    ];
+    const attached = attachReferenceToRows(rows, '  paneer ', 'IFCT-9');
+    expect(attached[1]).toMatchObject({ key: 'b', referenceCode: 'IFCT-9', grams: '100' });
+    expect(attached[0]).toBe(rows[0]);
+    expect(attached).toHaveLength(2);
+    // Ids are attached by wording, so an unknown wording changes nothing.
+    expect(attachReferenceToRows(rows, 'ghee', 'IFCT-9')).toEqual(rows);
   });
 });

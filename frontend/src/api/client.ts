@@ -91,7 +91,17 @@ export type DishPayload = {
 };
 export type DishMatch = { input_text: string; code: string; name: string; basis: string | null; grams: number | null; matched_by: string };
 export type DishUnmatched = { input_text: string; reason: string };
-export type DishEstimate = { available: boolean; basis: string | null; nutrients: Partial<Record<Nutrient, number | null>>; total_grams: number | null; assumptions: string[] };
+/** One ingredient the estimate had to leave out, and why. */
+export type DishEstimateExclusion = { input_text: string; reason: string };
+/**
+ * A partial estimate is a floor, not the whole dish: it covers only the ingredients that are
+ * both matched to a reference and weighed, and `excluded` names everything left out.
+ */
+export type DishEstimate = {
+  available: boolean; basis: string | null; nutrients: Partial<Record<Nutrient, number | null>>;
+  total_grams: number | null; assumptions: string[]; matched_count: number; matched_grams: number | null;
+  excluded: DishEstimateExclusion[]; coverage_note: string;
+};
 export type DishAssessment = {
   id: string;
   dish: { name: string; matches: DishMatch[]; unmatched: DishUnmatched[]; estimate: DishEstimate };
@@ -123,6 +133,32 @@ export function dishStatusExplanation(status: AssessmentStatus): string {
   if (status === 'recorded_conflict') return 'At least one ingredient matched a restriction recorded in your profile, so this meal fails a recorded check.';
   if (status === 'needs_information') return 'A required check could not complete with the information available, so this result is inconclusive.';
   return 'Every supported check ran on the available ingredient declarations and found no match with your recorded restrictions. This is not an overall safety verdict.';
+}
+
+/** The floor warning a partial estimate always carries: left-out ingredients can only add nutrients. */
+export const PARTIAL_ESTIMATE_FLOOR_NOTE = 'This is a floor, not the whole dish: the left-out ingredients are not counted, so the nutrients they carry are understated.';
+
+/** How much of the dish an estimate actually covers, in one line. */
+export function estimateCoverageLine(estimate: DishEstimate): string {
+  if (!estimate.available) return 'No nutrient estimate yet: no ingredient is both matched to a reference and weighed in grams.';
+  const grams = estimate.matched_grams == null ? '' : ` · ${estimate.matched_grams} g counted`;
+  return `Estimated from ${estimate.matched_count} weighed ingredient${estimate.matched_count === 1 ? '' : 's'}${grams}`;
+}
+
+/** The first ingredient row holding this typed wording, matched the way the backend matches it. */
+export function ingredientRowKeyFor<T extends { key: string; text: string }>(rows: T[], inputText: string): string | null {
+  const target = inputText.trim().toLowerCase();
+  return rows.find(row => row.text.trim().toLowerCase() === target)?.key ?? null;
+}
+
+/**
+ * Attach a chosen reference code to the first row holding this typed wording and leave every
+ * other row untouched, so a suggestion from the result view lands on the ingredient it came from.
+ */
+export function attachReferenceToRows<T extends { key: string; text: string; referenceCode: string | null }>(rows: T[], inputText: string, code: string): T[] {
+  const key = ingredientRowKeyFor(rows, inputText);
+  if (key === null) return rows;
+  return rows.map(row => row.key === key ? { ...row, referenceCode: code } : row);
 }
 export type CatalogResponse = { products: { id: string; food: FoodObservation; updated_at: string }[]; query_type?: string; live_requested?: boolean; live_status?: string; message?: string; skipped_records?: number };
 export type Recipe = { id: string; name: string; ingredients: DishIngredient[]; source: Record<string, unknown>; review_status: string; warnings: string[] };

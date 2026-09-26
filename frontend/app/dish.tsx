@@ -3,7 +3,7 @@ import { Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-nat
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Button, Card, Field, PageHeader, Pill, Screen, SectionTitle } from '@/src/components/ui';
 import { FindingsList, findingCount, statusTone } from '@/src/components/findings';
-import { api, dishStatusExplanation, REFERENCE_MATCH_NOTE, referenceSuggestionLabel, TYPE_AHEAD_DELAY_MS, typeAheadTerm, type DishOptions, type Recipe, type ReferenceFood } from '@/src/api/client';
+import { api, attachReferenceToRows, dishStatusExplanation, estimateCoverageLine, ingredientRowKeyFor, PARTIAL_ESTIMATE_FLOOR_NOTE, REFERENCE_MATCH_NOTE, referenceSuggestionLabel, TYPE_AHEAD_DELAY_MS, typeAheadTerm, type DishOptions, type Recipe, type ReferenceFood } from '@/src/api/client';
 import { useApp, type DishDraft, type DishIngredientDraft } from '@/src/state/AppContext';
 import { nutrientFields } from '@/src/data/nutrients';
 import { colors, radius } from '@/src/theme';
@@ -101,6 +101,48 @@ function IngredientRow({ index, row, token, removable, onChange, onRemove }: {
   </Card>;
 }
 
+/**
+ * The top-ranked reference candidates for one unmatched ingredient. Tapping one attaches it to
+ * that row and runs the check again, which is the same ranked search the typing field uses.
+ */
+function UnmatchedRow({ input, reason, token, busy, onAttach }: {
+  input: string; reason: string; token: string | null; busy: boolean;
+  onAttach: (inputText: string, code: string) => Promise<void>;
+}) {
+  const [candidates, setCandidates] = useState<ReferenceFood[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [failed, setFailed] = useState('');
+  useEffect(() => {
+    if (!token) return;
+    let active = true;
+    setLoading(true); setFailed('');
+    api.referenceFoods(token, input, 3)
+      .then(result => { if (active) setCandidates(result.foods); })
+      .catch(cause => { if (active) setFailed(cause instanceof Error ? cause.message : 'Reference search failed.'); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [input, token]);
+  return <View style={st.unmatched}>
+    <Text selectable style={st.meta}>{input} → not matched: {reason}</Text>
+    {loading ? <Text style={st.searching}>Looking for reference candidates…</Text> : null}
+    {failed ? <Text accessibilityRole="alert" style={st.error}>{failed}</Text> : null}
+    {candidates.length ? <View style={st.suggestions}>{candidates.map(food => <Pressable key={food.code} accessibilityRole="button" accessibilityLabel={`Attach reference ${food.name} to ${input} and run the check again`} disabled={busy} onPress={() => void onAttach(input, food.code)} style={({ pressed }) => [st.suggestion, pressed && { opacity: 0.85 }, busy && { opacity: 0.6 }]}>
+      <MaterialCommunityIcons name="link-variant" size={16} color={colors.primary} />
+      <Text style={st.suggestionText}>{referenceSuggestionLabel(food)}</Text>
+    </Pressable>)}</View> : null}
+    {!loading && !failed && !candidates.length ? <Text style={st.note}>{REFERENCE_MATCH_NOTE} No IFCT reference matches this wording — try a simpler ingredient name, then run the check again.</Text> : null}
+  </View>;
+}
+
+/** The ingredients this reference table has no entry for; a name match still runs on them. */
+function UnmatchedList({ items, token, busy, onAttach }: {
+  items: { input_text: string; reason: string }[]; token: string | null; busy: boolean;
+  onAttach: (inputText: string, code: string) => Promise<void>;
+}) {
+  if (!items.length) return <Text style={st.meta}>Every typed ingredient matched a reference.</Text>;
+  return <View style={{ gap: 12 }}>{items.map(item => <UnmatchedRow key={item.input_text} input={item.input_text} reason={item.reason} token={token} busy={busy} onAttach={onAttach} />)}</View>;
+}
+
 export default function DishScreen() {
   const { token, profile, dishDraft, setDishDraft, assessDish, busyFor, clearError, error, dishResult, clearDish } = useApp();
   const [mode, setMode] = useState<'home' | 'restaurant'>('home');
@@ -157,12 +199,24 @@ export default function DishScreen() {
     setRecipe(item);
     setDishDraft({ ...dishDraft, name: item.name, ingredients: item.ingredients.map(ingredient => ({ ...ingredientRow(ingredient.text), referenceCode: ingredient.reference_code || null, grams: ingredient.grams == null ? '' : String(ingredient.grams) })), declarationsConfirmed: false });
   };
-  const submit = async () => {
+  /** Run the check on one concrete draft so the result always describes the list on screen. */
+  const runCheck = async (draft: DishDraft) => {
     clearError(); setMessage('');
-    const signature = draftSignature(dishDraft);
-    const declarationsConfirmed = dishDraft.declarationsConfirmed;
-    try { await assessDish(); setChecked({ signature, declarationsConfirmed }); }
+    const signature = draftSignature(draft);
+    const declarationsConfirmed = draft.declarationsConfirmed;
+    try { await assessDish(draft); setChecked({ signature, declarationsConfirmed }); }
     catch (cause) { setMessage(cause instanceof Error ? cause.message : 'Meal assessment failed.'); }
+  };
+  /** Attach a candidate from the result view to its ingredient row, then check again. */
+  const attachReference = async (inputText: string, code: string) => {
+    const nextDraft: DishDraft = { ...dishDraft, ingredients: attachReferenceToRows(dishDraft.ingredients, inputText, code) };
+    setDishDraft(nextDraft);
+    await runCheck(nextDraft);
+  };
+  /** Record a weight for an already matched ingredient; the user then re-runs the check. */
+  const setGramWeight = (inputText: string, grams: string) => {
+    const key = ingredientRowKeyFor(dishDraft.ingredients, inputText);
+    if (key) updateRow(key, { grams });
   };
   const chooseMode = (value: 'home' | 'restaurant') => {
     setMode(value);
@@ -172,6 +226,8 @@ export default function DishScreen() {
   const typedIngredients = dishDraft.ingredients.filter(row => row.text.trim()).length;
   const resultOutOfDate = Boolean(dishResult && checked && checked.signature !== draftSignature(dishDraft));
   const resultConfirmable = Boolean(dishResult && checked);
+  const unmatchedWeights = dishResult ? dishResult.dish.matches.filter(match => match.grams == null) : [];
+  const nothingMatched = Boolean(dishResult && !dishResult.dish.matches.length);
 
   return <Screen>
     <PageHeader eyebrow="Meal check" title="What goes into your meal?" subtitle="Start from a recipe or enter ingredients. Make the check reflect the food you plan to eat." back />
@@ -212,7 +268,7 @@ export default function DishScreen() {
     <Field label="Your serving (g, optional)" value={dishDraft.portion} onChangeText={portion => setDishDraft({ ...dishDraft, portion })} placeholder="Leave blank if unknown" keyboardType="numeric" />
 
     {message || error ? <Text accessibilityRole="alert" style={st.error}>{message || error}</Text> : null}
-    <Button title={mode === 'home' ? 'Check ingredients before cooking' : 'Find concerns & questions to ask'} icon="arrow-right" loading={busyFor('dish')} disabled={!profile || !dishDraft.name.trim() || !typedIngredients} onPress={() => void submit()} />
+    <Button title={mode === 'home' ? 'Check ingredients before cooking' : 'Find concerns & questions to ask'} icon="arrow-right" loading={busyFor('dish')} disabled={!profile || !dishDraft.name.trim() || !typedIngredients} onPress={() => void runCheck(dishDraft)} />
 
     {dishResult ? <>
       <SectionTitle title="Meal check result" action={`${findingCount(dishResult.assessment)} items`} />
@@ -222,27 +278,41 @@ export default function DishScreen() {
         <Text style={st.copy}>{dishStatusExplanation(dishResult.assessment.status)}</Text>
         <Text style={st.meta}>{dishResult.assessment.status_reason}</Text>
         {resultConfirmable ? <Text style={st.meta}>{checked?.declarationsConfirmed ? 'You confirmed the cook listed the full ingredient list, so these checks treat the declarations as complete.' : 'The ingredient list was not confirmed as complete, so anything unlisted stays unknown and the checks remain inconclusive.'}</Text> : null}
-        <View style={st.block}>
+        {dishResult.dish.matches.length ? <View style={st.block}>
           <Text style={st.blockTitle}>Matched to a reference ({dishResult.dish.matches.length})</Text>
-          {dishResult.dish.matches.length
-            ? dishResult.dish.matches.map(match => <Text key={`${match.input_text}-${match.code}`} selectable style={st.meta}>{match.input_text} → {match.name} ({match.code}){match.grams == null ? ', amount unknown' : `, ${match.grams} g`} · matched by {match.matched_by}</Text>)
-            : <Text style={st.meta}>No typed ingredient matched an IFCT reference. The ingredient-name checks still run.</Text>}
-        </View>
+          {dishResult.dish.matches.map(match => <Text key={`${match.input_text}-${match.code}`} selectable style={st.meta}>{match.input_text} → {match.name} ({match.code}){match.grams == null ? ', amount unknown' : `, ${match.grams} g`} · matched by {match.matched_by}</Text>)}
+          {unmatchedWeights.length ? <View style={st.amounts}>
+            <Text style={st.meta}>Matched but not weighed, so still left out of the estimate. Add the amount used:</Text>
+            {unmatchedWeights.map(match => <View key={`grams-${match.input_text}`} style={st.amountRow}>
+              <Text style={st.amountLabel}>{match.input_text}</Text>
+              <TextInput accessibilityLabel={`Amount in grams for ${match.input_text}`} value={(dishDraft.ingredients.find(row => row.text.trim().toLowerCase() === match.input_text.trim().toLowerCase())?.grams) ?? ''} onChangeText={grams => setGramWeight(match.input_text, grams)} keyboardType="numeric" placeholder="g" placeholderTextColor={colors.subtle} style={st.amountInput} />
+            </View>)}
+            <Text style={st.note}>Then run the check again to include {unmatchedWeights.length === 1 ? 'it' : 'them'}.</Text>
+          </View> : null}
+        </View> : null}
         <View style={st.block}>
           <Text style={st.blockTitle}>Not matched ({dishResult.dish.unmatched.length})</Text>
-          {dishResult.dish.unmatched.length
-            ? dishResult.dish.unmatched.map(item => <Text key={item.input_text} selectable style={st.meta}>{item.input_text} → not matched: {item.reason}</Text>)
-            : <Text style={st.meta}>Every typed ingredient matched a reference.</Text>}
+          <UnmatchedList items={dishResult.dish.unmatched} token={token} busy={busyFor('dish')} onAttach={attachReference} />
         </View>
         <View style={st.block}>
           <Text style={st.blockTitle}>Estimate</Text>
+          <Text style={st.copy}>{estimateCoverageLine(dishResult.dish.estimate)}</Text>
           {dishResult.dish.estimate.available
-            ? <><Text style={st.meta}>Estimated per 100 g of this meal{dishResult.dish.estimate.total_grams == null ? '' : `, from the ${dishResult.dish.estimate.total_grams} g entered in total`}:</Text>{nutrientFields.filter(field => dishResult.dish.estimate.nutrients[field.key] != null).map(field => <Text key={field.key} style={st.meta}>{field.label}: {dishResult.dish.estimate.nutrients[field.key]} {field.unit}</Text>)}</>
-            : <Text style={st.meta}>No nutrient estimate: every ingredient needs a matched reference and a weight in grams. The ingredient-name checks still apply.</Text>}
+            ? <>
+              {dishResult.dish.estimate.coverage_note ? <Text style={st.meta}>{dishResult.dish.estimate.coverage_note}</Text> : null}
+              {dishResult.dish.estimate.excluded.length ? <Text style={st.meta}>Left out of this estimate:</Text> : null}
+              {dishResult.dish.estimate.excluded.map(item => <Text key={`excluded-${item.input_text}`} selectable style={st.meta}>· {item.input_text} — {item.reason}</Text>)}
+              <Text style={st.floor}>{PARTIAL_ESTIMATE_FLOOR_NOTE}</Text>
+              <Text style={st.meta}>Estimated per 100 g of this meal{dishResult.dish.estimate.matched_grams == null ? '' : `, from the ${dishResult.dish.estimate.matched_grams} g counted`}:</Text>
+              {nutrientFields.filter(field => dishResult.dish.estimate.nutrients[field.key] != null).map(field => <Text key={field.key} style={st.meta}>{field.label}: {dishResult.dish.estimate.nutrients[field.key]} {field.unit}</Text>)}
+            </>
+            : <Text style={st.meta}>No ingredient is both matched to a reference and weighed in grams yet. Attach a reference to an unmatched ingredient and add the amounts, then run the check again. The ingredient-name checks still apply.</Text>}
           {dishResult.dish.estimate.assumptions.map((assumption, index) => <Text key={`assumption-${index}`} style={st.meta}>· {assumption}</Text>)}
         </View>
       </Card>
+      {nothingMatched ? <Card style={st.notice}><MaterialCommunityIcons name="help-circle-outline" size={17} color={colors.amber} /><Text style={st.noticeText}>None of the typed ingredients matched a reference, so no nutrient estimate is possible yet. Attach one of the suggested references above — or reword the ingredient to a simpler name — then add the amounts and run the check again.</Text></Card> : null}
       <FindingsList result={dishResult.assessment} />
+      <Button title="Run this check again" icon="refresh" secondary loading={busyFor('dish')} onPress={() => void runCheck(dishDraft)} />
       <Button title="Clear this meal check" icon="close-circle-outline" secondary onPress={() => { clearDish(); setChecked(null); setMessage(''); }} />
     </> : null}
   </Screen>;
@@ -256,6 +326,7 @@ const st = StyleSheet.create({
   suggestions: { gap: 6, marginTop: 8 }, suggestion: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12, paddingVertical: 10, borderRadius: radius.chip, backgroundColor: colors.lavenderTint, borderWidth: 1, borderColor: colors.lavenderLine }, suggestionText: { flex: 1, color: colors.ink, fontSize: 13, lineHeight: 18, fontWeight: '700' },
   searching: { marginTop: 7, color: colors.primary, fontSize: 12, fontWeight: '700' }, note: { marginTop: 7, color: colors.subtle, fontSize: 11, lineHeight: 16 }, noteRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 7, flexWrap: 'wrap' }, selected: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   empty: { alignItems: 'center', gap: 8, paddingVertical: 22 }, block: { gap: 4, borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 8 }, blockTitle: { color: colors.muted, letterSpacing: 1, fontSize: 9, fontWeight: '800' },
+  unmatched: { gap: 4 }, amounts: { gap: 8, marginTop: 8, backgroundColor: colors.canvas, borderRadius: radius.chip, padding: 12 }, amountRow: { flexDirection: 'row', alignItems: 'center', gap: 10 }, amountLabel: { flex: 1, color: colors.ink, fontSize: 13, fontWeight: '700' }, amountInput: { width: 84, minHeight: 44, borderWidth: 1, borderColor: colors.line, borderRadius: radius.chip, paddingHorizontal: 12, color: colors.ink, fontSize: 13, backgroundColor: colors.surface }, floor: { color: colors.amberInk, fontSize: 12, lineHeight: 17, fontWeight: '700', marginTop: 6 },
   notice: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: colors.amberBg }, noticeText: { flex: 1, color: colors.amberInk, fontSize: 12, lineHeight: 17, fontWeight: '700' },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, chip: { paddingHorizontal: 12, paddingVertical: 12, borderRadius: 14, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line }, chipActive: { backgroundColor: colors.lavender, borderColor: colors.primary },
   confirm: { gap: 10, borderWidth: 2, borderColor: colors.line }, confirmOn: { borderColor: colors.primary, backgroundColor: colors.lavenderSoft }, confirmRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 11 }, confirmTitle: { color: colors.ink, fontSize: 16, lineHeight: 22, fontWeight: '800', marginBottom: 4 }, confirmState: { color: colors.primaryDark, fontSize: 12, lineHeight: 17, fontWeight: '700' },

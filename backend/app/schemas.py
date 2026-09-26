@@ -262,12 +262,23 @@ class DishUnmatched(ResponseModel):
     reason: str
 
 
+class DishEstimateExclusion(ResponseModel):
+    input_text: str
+    reason: str
+
+
 class DishEstimate(ResponseModel):
     available: bool
     basis: str | None = None
     nutrients: dict[str, float | None] = Field(default_factory=dict)
     total_grams: float | None = None
     assumptions: list[str] = Field(default_factory=list)
+    # A reference table is not a recipe book: ingredients it does not measure are listed
+    # here so the estimate is read as a floor rather than the whole dish.
+    matched_count: int = 0
+    matched_grams: float | None = None
+    excluded: list[DishEstimateExclusion] = Field(default_factory=list)
+    coverage_note: str = ""
 
 
 class DishResult(ResponseModel):

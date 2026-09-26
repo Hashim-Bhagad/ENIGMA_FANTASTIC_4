@@ -205,46 +205,67 @@ def build_dish(session: Session, body: DishRequest) -> dict:
         )
         resolved.append((row, item.grams))
 
-    complete = (
-        bool(resolved)
-        and len(resolved) == len(body.ingredients)
-        and all(grams is not None for _, grams in resolved)
+    # A reference table is not a recipe book: salt, sugar, butter or a house mix may have no
+    # entry at all. The estimate therefore covers the matched, weighed ingredients and names
+    # what it had to leave out, instead of refusing to estimate anything.
+    weighed = [(row, grams) for row, grams in resolved if grams is not None]
+    excluded: list[dict] = [
+        {"input_text": item["input_text"], "reason": item["reason"]} for item in unmatched
+    ]
+    # Matched rows without a weight are left out too, exactly once and never when weighed.
+    excluded.extend(
+        {
+            "input_text": match["input_text"],
+            "reason": "Matched to a reference but no weight in grams, so it is left out.",
+        }
+        for match in matches
+        if match["grams"] is None
     )
     nutrients: dict[str, float | None] = {}
     total_grams = None
     assumptions: list[str] = []
     warnings: list[str] = []
-    if complete:
-        total_grams = round(sum(grams for _, grams in resolved), 4)
+    available = bool(weighed)
+    coverage_note = ""
+    if available:
+        total_grams = round(sum(grams for _, grams in weighed), 4)
         for key in DISH_NUTRIENTS:
-            values = [_nutrient_value(row, key) for row, _ in resolved]
+            values = [_nutrient_value(row, key) for row, _ in weighed]
             if any(value is None for value in values):
                 nutrients[key] = None
                 assumptions.append(
-                    f"{key} stays unknown because at least one ingredient has no reference value."
+                    f"{key} stays unknown because at least one included ingredient has no "
+                    "reference value."
                 )
                 continue
-            # Each value is per 100 g, so the ingredient contributes value * grams / 100.
             total_mass = sum(
-                value * grams / 100 for value, (_, grams) in zip(values, resolved, strict=True)
+                value * grams / 100 for value, (_, grams) in zip(values, weighed, strict=True)
             )
             nutrients[key] = round(total_mass / total_grams * 100, 2)
         basis = "100g"
+        coverage_note = (
+            f"Estimated from {len(weighed)} of {len(body.ingredients)} ingredient(s) by weight "
+            f"({total_grams} g of the listed amounts)."
+        )
+        if excluded:
+            names = ", ".join(item["input_text"] for item in excluded[:5])
+            coverage_note += f" Left out: {names}."
+            warnings.append(
+                "This is a floor, not the whole dish: the ingredients left out above are not "
+                "counted, so nutrients they carry (salt, sugar, fat) are understated."
+            )
         warnings.append(
             "Estimated from reference ingredient composition, not a measured prepared dish."
         )
     else:
         basis = None
         warnings.append(
-            "No per-100g estimate: every ingredient must be matched to a reference food and "
-            "weighed in grams."
+            "No per-100g estimate: at least one ingredient needs a matched reference food and a "
+            "weight in grams."
         )
         if unmatched:
-            warnings.append(
-                f"{len(unmatched)} ingredient(s) were not matched to a reference food and are "
-                "absent from any estimate."
-            )
-        elif not all(item.grams is not None for item in body.ingredients):
+            warnings.append(f"{len(unmatched)} ingredient(s) were not matched to a reference food.")
+        elif not any(item.grams is not None for item in body.ingredients):
             warnings.append("One or more ingredients have no weight in grams.")
     assumptions.append(
         "Reference data report available carbohydrate and free sugars, not label total "
@@ -261,7 +282,7 @@ def build_dish(session: Session, body: DishRequest) -> dict:
             "advisories_text": "" if body.declarations_confirmed else None,
             "ingredients_complete": body.declarations_confirmed,
             "advisories_complete": body.declarations_confirmed,
-            "nutrients": nutrients if complete else {},
+            "nutrients": nutrients if available else {},
             "source": {
                 "kind": "dish",
                 "reference": f"dish:{normalize_name(body.name)}",
@@ -274,11 +295,15 @@ def build_dish(session: Session, body: DishRequest) -> dict:
         "matches": matches,
         "unmatched": unmatched,
         "estimate": {
-            "available": complete,
+            "available": available,
             "basis": basis,
-            "nutrients": nutrients if complete else {},
+            "nutrients": nutrients if available else {},
             "total_grams": total_grams,
             "assumptions": assumptions,
+            "matched_count": len(weighed),
+            "matched_grams": total_grams,
+            "excluded": excluded,
+            "coverage_note": coverage_note,
         },
     }
     return {

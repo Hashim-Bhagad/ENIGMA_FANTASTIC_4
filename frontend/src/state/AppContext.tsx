@@ -29,7 +29,7 @@ type AppContextValue = {
   recommendation: Recommendation | null; getRecommendations: () => Promise<Recommendation>;
   history: Assessment[]; historyTotal: number; hasMoreHistory: boolean; loadHistory: () => Promise<void>; loadMoreHistory: () => Promise<void>; openAssessment: (id: string) => Promise<void>;
   guide: ProfilesGuide | null; guideError: string; loadGuide: () => Promise<void>;
-  dishDraft: DishDraft; setDishDraft: (draft: DishDraft) => void; dishResult: DishAssessment | null; assessDish: () => Promise<DishAssessment>; clearDish: () => void;
+  dishDraft: DishDraft; setDishDraft: (draft: DishDraft) => void; dishResult: DishAssessment | null; assessDish: (draft?: DishDraft) => Promise<DishAssessment>; clearDish: () => void;
   busy: boolean; busyFor: (name: Operation) => boolean; error: string; clearError: () => void;
 };
 
@@ -281,12 +281,17 @@ export function AppProvider({ children }: React.PropsWithChildren) {
     });
   }, [token, profile, withOperation]);
 
-  const assessDish = useCallback(async () => {
+  /**
+   * Assess a draft. Callers that attach a reference or an amount from the result view pass the
+   * updated draft directly, so the check never runs against the state it is replacing.
+   */
+  const assessDish = useCallback(async (draft?: DishDraft) => {
+    const source = draft ?? dishDraft;
     if (!token || !profile) throw new ApiError('Save a profile before assessing a cooked meal.', 409, 'conflict');
-    const name = dishDraft.name.trim();
+    const name = source.name.trim();
     if (!name) throw new ApiError('Enter the dish name before assessing.', 400, 'validation_error');
     const ingredients: DishPayload['ingredients'] = [];
-    for (const row of dishDraft.ingredients) {
+    for (const row of source.ingredients) {
       const text = row.text.trim();
       if (!text) continue;
       const grams = row.grams.trim() ? Number(row.grams) : null;
@@ -294,9 +299,9 @@ export function AppProvider({ children }: React.PropsWithChildren) {
       ingredients.push({ text, reference_code: row.referenceCode, grams });
     }
     if (!ingredients.length) throw new ApiError('Add at least one ingredient before assessing.', 400, 'validation_error');
-    const portionG = dishDraft.portion.trim() ? Number(dishDraft.portion) : null;
+    const portionG = source.portion.trim() ? Number(source.portion) : null;
     if (portionG !== null && (!Number.isFinite(portionG) || portionG <= 0)) throw new ApiError('Portion must be a positive number or left blank.', 400, 'validation_error');
-    const payload: DishPayload = { profile_id: profile.id, profile_version: profile.version, name, ingredients, cooking_notes: dishDraft.cookingNotes, declarations_confirmed: dishDraft.declarationsConfirmed, portion_g: portionG };
+    const payload: DishPayload = { profile_id: profile.id, profile_version: profile.version, name, ingredients, cooking_notes: source.cookingNotes, declarations_confirmed: source.declarationsConfirmed, portion_g: portionG };
     return withOperation('dish', async () => {
       setError('');
       try { const result = await api.assessDish(token, payload); setDishResult(result); return result; }
