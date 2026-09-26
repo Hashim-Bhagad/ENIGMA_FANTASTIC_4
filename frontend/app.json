@@ -1,0 +1,17 @@
+{
+  "expo": {
+    "name": "SafeBitez",
+    "slug": "safebitez",
+    "scheme": "safebitez",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "plugins": [
+      "expo-router",
+      ["expo-camera", { "cameraPermission": "Allow SafeBitez to scan product barcodes.", "recordAudioAndroid": false }],
+      ["expo-image-picker", { "photosPermission": "Choose a photo of a food label to review.", "cameraPermission": "Take a photo of a food label to review.", "microphonePermission": false }]
+    ],
+    "experiments": { "typedRoutes": true },
+    "web": { "bundler": "metro", "name": "SafeBitez" }
+  }
+}
