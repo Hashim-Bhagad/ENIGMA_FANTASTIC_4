@@ -373,6 +373,70 @@ export class ApiError extends Error {
   constructor(message: string, readonly status?: number, readonly code?: ApiErrorCode) { super(message); this.name = 'ApiError'; }
 }
 
+// --- The guided fallback when a barcode has no record --------------------------------
+/** The optional fields that keep a photographed pack attached to its barcode and search name. */
+export type LabelExtractionMeta = { barcode?: string | null; name?: string | null };
+
+/** What a label extraction returned: the observation to correct, and whether the pack was saved. */
+export type LabelExtractionResult = {
+  food: FoodObservation;
+  confirmation_required: boolean;
+  /** True when a catalog record now answers this barcode, so the next lookup finds the pack. */
+  saved: boolean;
+  product_id: string | null;
+};
+
+/** The digit counts a printed retail barcode and the backend both accept. */
+export function isUsableBarcode(value: string): boolean {
+  return /^(?:[0-9]{8}|[0-9]{12,14})$/.test(value.trim());
+}
+
+/** One honest offer of the ingredient-list photo, and exactly what it will do with the barcode. */
+export type LabelFallbackPrompt = {
+  /** The barcode to send with the photo, or null when there is no usable barcode to carry. */
+  barcode: string | null;
+  title: string;
+  detail: string;
+};
+
+/**
+ * Decide whether a lookup that found nothing should offer the ingredient-list photo.
+ *
+ * A missing record (404) and an empty search are what a photo can answer; a connection,
+ * sign-in, or server failure is not, so those offer nothing. A barcode the backend rejects
+ * still offers the photo, but says plainly that the barcode cannot be attached instead of
+ * dropping it silently.
+ */
+export function labelFallbackOffer(input: { barcode?: string | null; query?: string | null; error?: unknown; resultCount?: number }): LabelFallbackPrompt | null {
+  const barcode = (input.barcode ?? '').trim();
+  const query = (input.query ?? '').trim();
+  const failure = input.error;
+  const notFound = failure instanceof ApiError && (failure.status === 404 || failure.code === 'not_found');
+  const malformed = failure instanceof ApiError && (failure.status === 422 || failure.code === 'validation_error');
+  const emptySearch = failure == null && input.resultCount === 0;
+  if (!notFound && !malformed && !emptySearch) return null;
+  if (malformed && barcode && !isUsableBarcode(barcode)) {
+    return { barcode: null, title: `"${barcode}" is not a usable barcode`, detail: 'A barcode needs 8, 12, 13, or 14 digits, so this one cannot be attached to the photo. The photo is still read and saved as its own record.' };
+  }
+  if (barcode && isUsableBarcode(barcode)) {
+    return { barcode, title: `No record for ${barcode}`, detail: `Photograph the ingredient list and review it yourself. The photo is saved against barcode ${barcode}, so the next lookup finds your pack.` };
+  }
+  if (!query) return null;
+  return { barcode: null, title: `No results for "${query}"`, detail: 'Photograph the ingredient list and review it yourself. The photo is saved as its own record, so the next lookup by name finds it.' };
+}
+
+/**
+ * What the scan screen says after an extraction: whether the pack is now findable by its
+ * barcode, and a plain statement when the entered barcode could not be attached.
+ */
+export function labelExtractionMessage(result: { saved: boolean }, attachedBarcode?: string | null, unusableBarcode?: string | null): string {
+  const review = 'Compare every extracted field with the package — a model reading is a draft, not a verified label.';
+  if (unusableBarcode) return `${unusableBarcode} is not a usable barcode (8, 12, 13, or 14 digits), so the photo was saved without it. ${review}`;
+  if (attachedBarcode && result.saved) return `Saved against barcode ${attachedBarcode} — the next lookup will find your label. ${review}`;
+  if (attachedBarcode) return `The photo was read, but no record was saved against barcode ${attachedBarcode}. ${review}`;
+  return review;
+}
+
 const DEFAULT_TIMEOUT_MS = 15_000;
 const LABEL_TIMEOUT_MS = 60_000;
 const DRAFT_TIMEOUT_MS = 45_000;
@@ -447,7 +511,7 @@ export const api = {
   verifyFssai: (token: string, fssaiNumber: string) => request<FssaiVerification>('/api/verification/fssai', token, { method: 'POST', body: JSON.stringify({ fssai_number: fssaiNumber }) }),
   provenance: (token: string, id: string) => request<ProductProvenance>(`/api/products/${encodeURIComponent(id)}/provenance`, token),
   referenceFoods: (token: string, q: string, limit?: number) => request<ReferenceFoodsResult>(`/api/reference-foods?q=${encodeURIComponent(q)}${limit == null ? '' : `&limit=${limit}`}`, token),
-  extractLabel: async (token: string, photo: Photo) => {
+  extractLabel: async (token: string, photo: Photo, meta?: LabelExtractionMeta) => {
     const form = new FormData();
     if (Platform.OS === 'web') {
       const blob = await (await fetch(photo.uri)).blob();
@@ -455,7 +519,12 @@ export const api = {
     } else {
       form.append('file', { uri: photo.uri, name: photo.name || 'label.jpg', type: photo.mimeType || 'image/jpeg' } as unknown as Blob);
     }
-    return request<{ food: FoodObservation; confirmation_required: boolean }>('/api/labels/extract', token, { method: 'POST', body: form }, LABEL_TIMEOUT_MS);
+    // A barcode sent with the photo makes the extracted record answer that barcode next time.
+    const barcode = meta?.barcode?.trim();
+    if (barcode) form.append('barcode', barcode);
+    const name = meta?.name?.trim();
+    if (name) form.append('name', name);
+    return request<LabelExtractionResult>('/api/labels/extract', token, { method: 'POST', body: form }, LABEL_TIMEOUT_MS);
   },
   assess: (token: string, profile: SavedProfile, food: FoodObservation, portion: number | null) => request<Assessment>('/api/assessments', token, { method: 'POST', body: JSON.stringify({ profile_id: profile.id, profile_version: profile.version, food, portion }) }),
   history: async (token: string, limit = 20, offset = 0): Promise<HistoryPage> => {

@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  allergenLabel, attachReferenceToRows, avoidSeverityLabel, avoidSeverityTone, confidenceLabel,
+  allergenLabel, ApiError, attachReferenceToRows, avoidSeverityLabel, avoidSeverityTone, confidenceLabel,
   DISH_DRAFT_ACTION, DISH_DRAFT_BANNER, dishStatusExplanation, draftIngredientRows, estimateCoverageLine, EU_ALLERGENS,
   evidenceReportLabel, formatEquivalent, formatEvidence,
   formatMeasuredLine, formatReferenceRange, ingredientRowKeyFor, intakeBaselineLine, intakeProposedLine, isNutrient,
+  isUsableBarcode, labelExtractionMessage, labelFallbackOffer,
   parameterStatusTone, PARTIAL_ESTIMATE_FLOOR_NOTE, referenceSuggestionLabel, TYPE_AHEAD_DELAY_MS,
   TYPE_AHEAD_MIN_CHARS, typeAheadTerm, type DishDraftResponse, type IntakeTarget,
 } from './client';
@@ -232,6 +233,114 @@ describe('api client reports, conditions and intake contract', () => {
     const failure = await api.extractReport('token', { uri: 'blob:http://localhost/abc', name: 'panel.jpg', mimeType: 'image/jpeg' }).catch((cause: unknown) => cause);
     expect(failure).toBeInstanceOf(ApiError);
     expect(failure).toMatchObject({ status: 429, code: 'rate_limited', message: 'Too many reports in a short time' });
+  });
+});
+
+describe('guided label fallback contract', () => {
+  // The offer decision is pure: it decides whether the scan screen shows the photo path
+  // at all, and it never sends a barcode the backend would reject.
+
+  it('offers the ingredient-list photo when a barcode has no record, and keeps the barcode', () => {
+    const offer = labelFallbackOffer({ barcode: '8901234567890', error: new ApiError('Product not found', 404, 'not_found') });
+    expect(offer?.barcode).toBe('8901234567890');
+    expect(offer?.title).toBe('No record for 8901234567890');
+    expect(offer?.detail).toMatch(/photograph the ingredient list and review it yourself/i);
+    expect(offer?.detail).toContain('saved against barcode 8901234567890');
+    // The backend's code alone is the same missing record.
+    expect(labelFallbackOffer({ barcode: '8901234567890', error: new ApiError('Product not found', undefined, 'not_found') })?.barcode).toBe('8901234567890');
+  });
+
+  it('offers nothing when the failure is not a missing record', () => {
+    expect(labelFallbackOffer({ barcode: '8901234567890', error: new ApiError('Cannot reach the backend.', undefined, 'network') })).toBeNull();
+    expect(labelFallbackOffer({ barcode: '8901234567890', error: new ApiError('The server did not respond in time.', undefined, 'timeout') })).toBeNull();
+    expect(labelFallbackOffer({ barcode: '8901234567890', error: new ApiError('Request failed (500)', 500, 'internal_error') })).toBeNull();
+    expect(labelFallbackOffer({ barcode: '8901234567890', error: new Error('boom') })).toBeNull();
+    // Nothing was entered or searched, so there is nothing to fall back from.
+    expect(labelFallbackOffer({})).toBeNull();
+    expect(labelFallbackOffer({ resultCount: 0 })).toBeNull();
+  });
+
+  it('offers the photo for a search with no results but not for one with results', () => {
+    const empty = labelFallbackOffer({ query: 'Ragi bites', resultCount: 0 });
+    expect(empty?.barcode).toBeNull();
+    expect(empty?.title).toBe('No results for "Ragi bites"');
+    expect(empty?.detail).toMatch(/review it yourself/i);
+    expect(labelFallbackOffer({ query: 'Ragi bites', resultCount: 3 })).toBeNull();
+    // A numeric search takes the barcode path, so its 404 still carries the barcode.
+    const numeric = labelFallbackOffer({ query: '8901234567890', barcode: '8901234567890', error: new ApiError('Product not found', 404) });
+    expect(numeric?.barcode).toBe('8901234567890');
+    expect(numeric?.title).toBe('No record for 8901234567890');
+  });
+
+  it('says plainly when the entered barcode cannot be attached', () => {
+    const malformed = labelFallbackOffer({ barcode: '890123', error: new ApiError('Enter an 8, 12, 13, or 14 digit barcode', 422, 'validation_error') });
+    expect(malformed?.barcode).toBeNull();
+    expect(malformed?.title).toBe('"890123" is not a usable barcode');
+    expect(malformed?.detail).toMatch(/cannot be attached/);
+    expect(malformed?.detail).toMatch(/8, 12, 13, or 14 digits/);
+  });
+
+  it('accepts only the printed digit counts as a usable barcode', () => {
+    expect([isUsableBarcode('12345678'), isUsableBarcode('890123456789'), isUsableBarcode('8901234567890'), isUsableBarcode('12345678901234'), isUsableBarcode(' 8901234567890 ')]).toEqual([true, true, true, true, true]);
+    expect([isUsableBarcode('1234567'), isUsableBarcode('123456789012345'), isUsableBarcode('890123456789a'), isUsableBarcode('')]).toEqual([false, false, false, false]);
+  });
+
+  it('reports whether the photographed pack is now saved against its barcode', () => {
+    expect(labelExtractionMessage({ saved: true }, '8901234567890')).toMatch(/^Saved against barcode 8901234567890 — the next lookup will find your label\./);
+    // The extracted list is never presented as verified.
+    expect(labelExtractionMessage({ saved: true }, '8901234567890')).toMatch(/not a verified label/);
+    expect(labelExtractionMessage({ saved: false }, '8901234567890')).toMatch(/no record was saved against barcode 8901234567890/);
+    expect(labelExtractionMessage({ saved: false }, null, '890123')).toMatch(/890123 is not a usable barcode/);
+    expect(labelExtractionMessage({ saved: true }, null, '890123')).not.toMatch(/saved against barcode/);
+    expect(labelExtractionMessage({ saved: true }, null, null)).toMatch(/compare every extracted field with the package/i);
+  });
+});
+
+describe('api client label extraction contract', () => {
+  // Re-imported after vi.resetModules() like the report upload cases: the client captures
+  // its base URL at module load, and the specifier stays a literal for the bundler.
+  beforeEach(() => { vi.resetModules(); delete process.env.EXPO_PUBLIC_API_URL; });
+  afterEach(() => { vi.unstubAllGlobals(); vi.resetModules(); });
+
+  const labelResponse = { food: { name: 'Ragi bites', barcode: '8901234567890' }, confirmation_required: true, saved: true, product_id: 'product-1' };
+
+  it('sends the barcode and the searched name with the label photo', async () => {
+    const { fetchMock, calls } = uploadFetch({ ok: true, status: 200, json: async () => labelResponse });
+    vi.stubGlobal('fetch', fetchMock);
+    const { api } = await import('./client');
+    const result = await api.extractLabel('token', { uri: 'blob:http://localhost/abc', name: 'label.jpg', mimeType: 'image/jpeg' }, { barcode: ' 8901234567890 ', name: 'Ragi bites' });
+    const { url, init, headers } = lastCall(calls);
+    expect(url).toBe('http://localhost:8000/api/labels/extract');
+    expect(init.method).toBe('POST');
+    expect(headers.Authorization).toBe('Bearer token');
+    // The runtime must set the multipart boundary itself.
+    expect(headers['Content-Type']).toBeUndefined();
+    const form = init.body as FormData;
+    expect(form.get('barcode')).toBe('8901234567890');
+    expect(form.get('name')).toBe('Ragi bites');
+    expect((form.get('file') as File).name).toBe('label.jpg');
+    // The saved flag travels back so the screen can say the pack is findable.
+    expect(result).toMatchObject({ saved: true, product_id: 'product-1' });
+  });
+
+  it('omits the barcode and name fields when there is nothing to attach', async () => {
+    const { fetchMock, calls } = uploadFetch({ ok: true, status: 200, json: async () => ({ ...labelResponse, saved: false, product_id: null }) });
+    vi.stubGlobal('fetch', fetchMock);
+    const { api } = await import('./client');
+    const result = await api.extractLabel('token', { uri: 'blob:http://localhost/abc', name: 'label.jpg', mimeType: 'image/jpeg' });
+    const form = lastCall(calls).init.body as FormData;
+    expect(form.get('barcode')).toBeNull();
+    expect(form.get('name')).toBeNull();
+    expect((form.get('file') as File).name).toBe('label.jpg');
+    expect(result.saved).toBe(false);
+    expect(result.product_id).toBeNull();
+    // A blank value is no different from an absent one.
+    const blank = uploadFetch({ ok: true, status: 200, json: async () => labelResponse });
+    vi.stubGlobal('fetch', blank.fetchMock);
+    await api.extractLabel('token', { uri: 'blob:http://localhost/abc', name: 'label.jpg', mimeType: 'image/jpeg' }, { barcode: '   ', name: '  ' });
+    const blankForm = lastCall(blank.calls).init.body as FormData;
+    expect(blankForm.get('barcode')).toBeNull();
+    expect(blankForm.get('name')).toBeNull();
   });
 });
 

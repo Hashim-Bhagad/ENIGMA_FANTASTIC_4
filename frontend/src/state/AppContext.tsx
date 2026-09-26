@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { Allergen, api, ApiError, Assessment, DishAssessment, DishPayload, EU_ALLERGENS, FoodObservation, IntakeTarget, isNutrient, ProfilesGuide, ProfileData, Recommendation, SavedProfile, setUnauthorizedHandler, toProduct, type Product } from '@/src/api/client';
+import { Allergen, api, ApiError, Assessment, DishAssessment, DishPayload, EU_ALLERGENS, FoodObservation, IntakeTarget, isNutrient, ProfilesGuide, ProfileData, Recommendation, SavedProfile, setUnauthorizedHandler, toProduct, type LabelExtractionMeta, type Product } from '@/src/api/client';
 import { session } from '@/src/api/session';
 
 export type AuthState = 'loading' | 'signed-out' | 'profile-missing' | 'ready' | 'session-error';
@@ -7,6 +7,9 @@ export type Operation = 'auth' | 'search' | 'barcode' | 'label' | 'assess' | 're
 
 export type DishIngredientDraft = { key: string; text: string; referenceCode: string | null; grams: string };
 export type DishDraft = { name: string; ingredients: DishIngredientDraft[]; cookingNotes: string[]; declarationsConfirmed: boolean; portion: string };
+
+/** The extracted product plus whether the photographed pack is now saved against its barcode. */
+export type LabelExtractionOutcome = { product: Product; saved: boolean; productId: string | null };
 
 const EMPTY_PROFILE: ProfileData = { conditions: [], allergies: [], ingredient_exclusions: [], limits: [], goals: [], preferences: '' };
 const EMPTY_DISH: DishDraft = { name: '', ingredients: [{ key: 'row-1', text: '', referenceCode: null, grams: '' }], cookingNotes: [], declarationsConfirmed: false, portion: '' };
@@ -21,10 +24,10 @@ type AppContextValue = {
   retrySession: () => Promise<void>; signOut: () => Promise<void>;
   profile: SavedProfile | null; profileDraft: ProfileData; setProfileDraft: (data: ProfileData) => void; saveProfile: () => Promise<void>; applyIntakeTarget: (target: IntakeTarget) => Promise<SavedProfile>;
   product: Product; setProduct: (product: Product) => void; products: Product[]; setProducts: (products: Product[]) => void;
-  search: string; setSearch: (value: string) => void; catalogMessage: string; loadCatalog: () => Promise<void>; searchCatalog: (query: string) => Promise<void>; lookupBarcode: (barcode: string) => Promise<Product>;
+  search: string; setSearch: (value: string) => void; catalogMessage: string; loadCatalog: () => Promise<void>; searchCatalog: (query: string) => Promise<Product[]>; lookupBarcode: (barcode: string) => Promise<Product>;
   allergens: string[]; toggleAllergen: (value: string) => void; conditions: string[]; toggleCondition: (value: string) => void;
   labelPhoto: string | null; setLabelPhoto: (uri: string | null) => void; sodiumLimit: string; setSodiumLimit: (value: string) => void;
-  extractLabel: (photo: { uri: string; name?: string | null; mimeType?: string | null }) => Promise<Product>;
+  extractLabel: (photo: { uri: string; name?: string | null; mimeType?: string | null }, meta?: LabelExtractionMeta) => Promise<LabelExtractionOutcome>;
   assessment: Assessment | null; createAssessment: (portion: number | null, food?: FoodObservation) => Promise<Assessment>;
   recommendation: Recommendation | null; getRecommendations: () => Promise<Recommendation>;
   history: Assessment[]; historyTotal: number; hasMoreHistory: boolean; loadHistory: () => Promise<void>; loadMoreHistory: () => Promise<void>; openAssessment: (id: string) => Promise<void>;
@@ -182,9 +185,9 @@ export function AppProvider({ children }: React.PropsWithChildren) {
 
   const searchCatalog = useCallback(async (query: string) => {
     if (!token) throw new ApiError('Sign in to search products.', 401, 'unauthorized');
-    await withOperation('search', async () => {
+    return withOperation('search', async () => {
       setError('');
-      try { const result = await api.search(token, query.trim(), true); setProducts(result.products.map(item => toProduct(item.id, item.food))); setCatalogMessage(result.live_status === 'unavailable' ? `Showing saved records. Live search is unavailable. ${result.message || ''}` : result.live_status === 'completed' ? 'Saved records and Open Food Facts results. Confirm each current package label.' : 'Saved product records. Confirm each current package label.'); }
+      try { const result = await api.search(token, query.trim(), true); const found = result.products.map(item => toProduct(item.id, item.food)); setProducts(found); setCatalogMessage(result.live_status === 'unavailable' ? `Showing saved records. Live search is unavailable. ${result.message || ''}` : result.live_status === 'completed' ? 'Saved records and Open Food Facts results. Confirm each current package label.' : 'Saved product records. Confirm each current package label.'); return found; }
       catch (cause) { setError(cause instanceof Error ? cause.message : 'Product search failed.'); throw cause; }
     });
   }, [token, withOperation]);
@@ -204,11 +207,22 @@ export function AppProvider({ children }: React.PropsWithChildren) {
       catch (cause) { setError(cause instanceof Error ? cause.message : 'Barcode lookup failed.'); throw cause; }
     });
   }, [token, withOperation]);
-  const extractLabel = useCallback(async (photo: { uri: string; name?: string | null; mimeType?: string | null }) => {
+  const extractLabel = useCallback(async (photo: { uri: string; name?: string | null; mimeType?: string | null }, meta?: LabelExtractionMeta) => {
     if (!token) throw new ApiError('Sign in to extract a label.', 401, 'unauthorized');
     return withOperation('label', async () => {
       setError('');
-      try { const result = await api.extractLabel(token, photo); setLabelPhoto(photo.uri); const next = toProduct(`photo-${Date.now()}`, result.food); setProduct(next); return next; }
+      try {
+        const result = await api.extractLabel(token, photo, meta);
+        setLabelPhoto(photo.uri);
+        // The barcode that travelled with the photo must survive to review even when the
+        // model did not read the printed symbol itself.
+        const barcode = meta?.barcode?.trim();
+        const food = barcode && !result.food.barcode ? { ...result.food, barcode } : result.food;
+        const next = toProduct(result.product_id ?? `photo-${Date.now()}`, food);
+        setProduct(next);
+        if (result.product_id) setProducts(current => [next, ...current.filter(item => item.id !== next.id)]);
+        return { product: next, saved: result.saved, productId: result.product_id };
+      }
       catch (cause) { setError(cause instanceof Error ? cause.message : 'Label extraction failed.'); throw cause; }
     });
   }, [token, withOperation]);

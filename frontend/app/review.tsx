@@ -18,6 +18,7 @@ export default function ReviewScreen() {
   const { product, setProduct, labelPhoto, setLabelPhoto, createAssessment, busyFor, error, clearError, token } = useApp();
   const original = product.observation;
   const [name, setName] = useState(product.name);
+  const [barcodeValue, setBarcodeValue] = useState(product.barcode || product.observation?.barcode || '');
   const [ingredients, setIngredients] = useState(product.ingredients);
   const [advisory, setAdvisory] = useState(product.advisory);
   const [declared, setDeclared] = useState<Allergen[]>(original?.declared_allergens ?? []);
@@ -30,6 +31,8 @@ export default function ReviewScreen() {
   const [traceOpen, setTraceOpen] = useState(false);
   useEffect(() => {
     setName(product.name); setIngredients(product.ingredients); setAdvisory(product.advisory);
+    // The barcode that came with a scanned or photographed pack stays on screen and editable.
+    setBarcodeValue(product.barcode || product.observation?.barcode || '');
     setDeclared(product.observation?.declared_allergens ?? []);
     setNutrition(nutrientInputs(product.observation)); setBasis(product.basis);
     setPortion(''); setConfirmed(false); setValidationError(''); setProvenance(null); setTraceOpen(false);
@@ -55,6 +58,7 @@ export default function ReviewScreen() {
     if (!normalizedBasis && Object.values(nutrients).some(value => value != null)) { setValidationError('Select the nutrition basis printed on the label before entering amounts.'); return; }
     const changed = original ? [
       ...(name.trim() !== original.name ? ['name'] : []),
+      ...((barcodeValue.trim() || null) !== (original.barcode || null) ? ['barcode'] : []),
       ...((ingredients.trim() || null) !== original.ingredients_text ? ['ingredients_text'] : []),
       ...((advisory.trim() || null) !== (original.advisories_text || null) ? ['advisories_text'] : []),
       ...(normalizedBasis !== original.basis ? ['basis'] : []),
@@ -62,7 +66,7 @@ export default function ReviewScreen() {
     ] : [];
     const observation: FoodObservation = {
       name: name.trim(), brand: original?.brand ?? (product.brand === 'Your label' ? null : product.brand),
-      barcode: product.barcode || original?.barcode || null, category: original?.category ?? null,
+      barcode: barcodeValue.trim() || null, category: original?.category ?? null,
       basis: normalizedBasis, ingredients_text: ingredients.trim() || null,
       advisories_text: confirmed ? advisory.trim() : advisory.trim() || null,
       ingredients_complete: confirmed && Boolean(ingredients.trim()), advisories_complete: confirmed,
@@ -73,7 +77,7 @@ export default function ReviewScreen() {
     if (confirmed && !ingredients.trim()) { setValidationError('Enter the complete ingredient list before confirming it.'); return; }
     const grams = portion.trim() ? Number(portion) : null;
     if (grams !== null && (!Number.isFinite(grams) || grams <= 0)) { setValidationError('Portion must be a positive number or left blank.'); return; }
-    const nextProduct = { ...product, name: observation.name, ingredients: observation.ingredients_text || '', advisory: observation.advisories_text || '', sodium: observation.nutrients.sodium_mg ?? null, basis: normalizedBasis ? normalizedBasis === '100ml' ? 'per 100 ml' : 'per 100 g' : 'Not supplied', sample: false, observation };
+    const nextProduct = { ...product, name: observation.name, barcode: observation.barcode ?? '', ingredients: observation.ingredients_text || '', advisory: observation.advisories_text || '', sodium: observation.nutrients.sodium_mg ?? null, basis: normalizedBasis ? normalizedBasis === '100ml' ? 'per 100 ml' : 'per 100 g' : 'Not supplied', sample: false, observation };
     setProduct(nextProduct);
     try { await createAssessment(grams, observation); router.push('/assessment'); }
     catch { /* The shared API error is rendered below so the user can correct or retry. */ }
@@ -81,7 +85,7 @@ export default function ReviewScreen() {
 
   return <Screen>
     <PageHeader title="Review the label" subtitle="Correct the observations using the product in your hand." back />
-    <Card style={st.product}><View style={[st.productIcon, { backgroundColor: product.color }]}><Text style={{ fontSize: 27 }}>{product.icon}</Text></View><View style={{ flex: 1 }}><Pill label={product.category.toUpperCase()} tone="purple" /><Text style={st.productName}>{name}</Text><Text style={st.brand}>{product.brand} · {product.barcode || 'barcode not entered'}</Text></View></Card>
+    <Card style={st.product}><View style={[st.productIcon, { backgroundColor: product.color }]}><Text style={{ fontSize: 27 }}>{product.icon}</Text></View><View style={{ flex: 1 }}><Pill label={product.category.toUpperCase()} tone="purple" /><Text style={st.productName}>{name}</Text><Text style={st.brand}>{product.brand} · {barcodeValue.trim() || 'barcode not entered'}</Text></View></Card>
     {labelPhoto && <Card style={st.photoCard}><View style={st.photoHeading}><View style={{ flex: 1 }}><Text style={st.photoTitle}>Label photo attached</Text><Text style={st.photoCopy}>Model extraction can be wrong. Compare each field with the actual package.</Text></View><Pressable accessibilityRole="button" accessibilityLabel="Remove label photo" onPress={() => setLabelPhoto(null)}><MaterialCommunityIcons name="close-circle-outline" size={21} color={colors.muted} /></Pressable></View><Image source={{ uri: labelPhoto }} resizeMode="cover" style={st.photo} /></Card>}
     {original?.source.warnings?.map((warning, index) => <Card key={index} style={st.warning}><MaterialCommunityIcons name="information-outline" size={17} color={colors.amber} /><Text style={st.warningText}>{warning}</Text></Card>)}
     {original ? <Card style={st.sourceCard}>
@@ -97,6 +101,8 @@ export default function ReviewScreen() {
     </Card> : null}
     <Card style={st.fields}>
       <Field label="Product name" value={name} onChangeText={setName} />
+      <Field label="Barcode (optional)" value={barcodeValue} onChangeText={setBarcodeValue} placeholder="Digits printed under the barcode" keyboardType="numeric" />
+      <Text style={st.photoCopy}>A barcode keeps this pack attached to its saved record so the next lookup finds it. Leave it blank when the package carries none.</Text>
       <Field label="Ingredients" value={ingredients} onChangeText={setIngredients} placeholder="Enter the ingredient list" multiline />
       <Field label="Allergen advisory" value={advisory} onChangeText={setAdvisory} placeholder="Enter the exact may-contain statement, or leave blank" multiline />
       <View style={{ gap: 8 }}><Text style={st.basisLabel}>NUTRITION BASIS</Text><View style={st.bases}>{['per 100 g', 'per 100 ml', 'Not supplied'].map(option => <Pressable key={option} onPress={() => { if (option !== basis) { setNutrition(nutrientInputs()); setBasis(option); } }} style={[st.basisOption, basis === option && st.basisOptionSelected]}><Text style={[st.basisOptionText, basis === option && st.basisOptionTextSelected]}>{option}</Text></Pressable>)}</View><Text style={st.photoCopy}>Changing the basis clears amounts so values cannot be silently relabelled.</Text></View>

@@ -5,7 +5,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { Button, Card, Field, PageHeader, Pill, Screen, SectionTitle } from '@/src/components/ui';
-import { api, type FssaiVerification, type Product } from '@/src/api/client';
+import { api, isUsableBarcode, labelExtractionMessage, labelFallbackOffer, type FssaiVerification, type LabelFallbackPrompt, type Product } from '@/src/api/client';
 import { useApp } from '@/src/state/AppContext';
 import { colors, radius, typography } from '@/src/theme';
 
@@ -17,6 +17,7 @@ export default function ScanScreen() {
   const [fssaiError, setFssaiError] = useState('');
   const [fssaiBusy, setFssaiBusy] = useState(false);
   const [message, setMessage] = useState('');
+  const [fallback, setFallback] = useState<LabelFallbackPrompt | null>(null);
   const [category, setCategory] = useState('All');
   const [cameraVisible, setCameraVisible] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
@@ -26,17 +27,38 @@ export default function ScanScreen() {
   const categories = ['All', ...new Set(products.map(item => item.category))];
   const visible = useMemo(() => products.filter(item => category === 'All' || item.category === category), [products, category]);
 
-  const select = (item: Product) => { setProduct(item); setLabelPhoto(null); setSearch(''); setMessage(''); router.push('/review'); };
+  const select = (item: Product) => { setProduct(item); setLabelPhoto(null); setSearch(''); setMessage(''); setFallback(null); router.push('/review'); };
   const lookup = async (value = barcode) => {
     if (!value.trim()) { setMessage('Enter the barcode printed on the product.'); return; }
+    setFallback(null);
     try { select(await lookupBarcode(value)); }
-    catch (cause) { setMessage(cause instanceof Error ? cause.message : 'Product lookup failed.'); }
+    catch (cause) {
+      // A missing record is exactly what the ingredient-list photo can answer, so the
+      // screen offers it instead of leaving the user with a bare error.
+      const offer = labelFallbackOffer({ barcode: value, error: cause });
+      setFallback(offer);
+      setMessage(offer ? '' : cause instanceof Error ? cause.message : 'Product lookup failed.');
+    }
   };
   const runSearch = async () => {
     if (search.trim().length < 2) { setMessage('Enter at least two characters to search the product catalog.'); return; }
-    setMessage(''); setCategory('All');
-    try { await searchCatalog(search); }
-    catch (cause) { setMessage(cause instanceof Error ? cause.message : 'Product search failed.'); }
+    setMessage(''); setCategory('All'); setFallback(null);
+    const query = search.trim();
+    const typedBarcode = isUsableBarcode(query) ? query : '';
+    try {
+      const found = await searchCatalog(search);
+      setFallback(labelFallbackOffer({ barcode: typedBarcode, query, resultCount: found.length }));
+    }
+    catch (cause) {
+      const offer = labelFallbackOffer({ barcode: typedBarcode, query, error: cause });
+      setFallback(offer);
+      if (!offer) setMessage(cause instanceof Error ? cause.message : 'Product search failed.');
+    }
+  };
+  const startManual = (code = '') => {
+    setFallback(null); setLabelPhoto(null);
+    setProduct({ ...product, id: `manual-${Date.now()}`, brand: 'Your label', name: 'New product', barcode: code, ingredients: '', advisory: '', sodium: null, basis: 'Not supplied', observation: undefined });
+    router.push('/review');
   };
   const verifyFssai = async () => {
     const number = fssaiNumber.replace(/\s/g, '');
@@ -66,14 +88,23 @@ export default function ScanScreen() {
     void lookup(data);
   };
   const addLabelPhoto = async () => {
+    // The barcode from the failed lookup travels with the photo, or, when the entered
+    // barcode cannot be attached, the message says so rather than dropping it silently.
+    const typed = barcode.trim();
+    const attached = isUsableBarcode(typed) ? typed : fallback?.barcode ?? null;
+    const unusable = attached || !typed ? null : typed;
     try {
       const result = Platform.OS === 'web'
         ? await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.85 })
         : await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.85 });
       if (result.canceled || !result.assets[0]) return;
       setMessage('Reading the label…');
-      await extractLabel({ uri: result.assets[0].uri, name: result.assets[0].fileName, mimeType: result.assets[0].mimeType });
-      setMessage('Review every extracted field against the package before assessing.');
+      const outcome = await extractLabel(
+        { uri: result.assets[0].uri, name: result.assets[0].fileName, mimeType: result.assets[0].mimeType },
+        { barcode: attached, name: search.trim() || null },
+      );
+      setMessage(labelExtractionMessage(outcome, attached, unusable));
+      setFallback(null);
       router.push('/review');
     } catch {
       setMessage('Label extraction failed. You can enter the package details manually.');
@@ -90,6 +121,12 @@ export default function ScanScreen() {
       <Pressable onPress={addLabelPhoto} style={st.photoButton}><MaterialCommunityIcons name="camera-plus-outline" size={17} color={colors.primary} /><Text style={st.cameraButtonText}>{Platform.OS === 'web' ? 'Choose a label photo' : 'Take a label photo'}</Text></Pressable>
       {message ? <View style={st.message}><MaterialCommunityIcons name="information-outline" size={16} color={colors.amber} /><Text style={st.messageText}>{message}</Text></View> : null}
     </Card>
+    {fallback ? <Card style={st.fallbackCard}>
+      <View style={st.fallbackHead}><MaterialCommunityIcons name="barcode-off" size={20} color={colors.amberInk} /><View style={{ flex: 1 }}><Text style={st.fallbackTitle}>{fallback.title}</Text><Text style={st.fallbackText}>{fallback.detail}</Text></View></View>
+      <Button title={Platform.OS === 'web' ? 'Choose a photo' : 'Take a label photo'} icon="camera-plus-outline" onPress={() => void addLabelPhoto()} />
+      <Button title="Enter label details manually" icon="text-box-outline" secondary onPress={() => startManual(fallback.barcode ?? '')} />
+      <Text style={st.fallbackNote}>The extracted list is an unchecked draft. You correct every field on the next screen before assessing it.</Text>
+    </Card> : null}
     <Card style={st.fssaiCard}>
       <View><Text style={st.cardTitle}>Verify an FSSAI license</Text><Text style={st.cardSub}>Check the license number printed on a food package.</Text></View>
       <Field label="FSSAI license number" value={fssaiNumber} onChangeText={value => { setFssaiNumber(value.replace(/[^0-9]/g, '').slice(0, 14)); setFssaiError(''); }} placeholder="14 digits" keyboardType="numeric" onSubmitEditing={() => void verifyFssai()} returnKeyType="done" />
@@ -110,7 +147,7 @@ export default function ScanScreen() {
     <SectionTitle title="Product catalogue" action="Browse saved" onAction={() => { setSearch(''); setCategory('All'); void loadCatalog().catch(() => undefined); }} />
     {catalogMessage ? <Text style={st.cardSub}>{catalogMessage}</Text> : null}
     <View style={{ gap: 10 }}>{visible.length ? visible.map(item => <ProductRow key={item.id} item={item} onPress={() => select(item)} />) : <Card style={{ alignItems: 'center', gap: 7 }}><MaterialCommunityIcons name="food-off-outline" size={30} color={colors.subtle} /><Text style={st.cardTitle}>{busy ? 'Searching…' : 'No saved results yet'}</Text><Text style={st.cardSub}>Search by name or scan a barcode to query Open Food Facts.</Text></Card>}</View>
-    <Button title="Enter label details manually" icon="text-box-outline" secondary onPress={() => { setLabelPhoto(null); setProduct({ ...product, id: `manual-${Date.now()}`, brand: 'Your label', name: 'New product', barcode: '', ingredients: '', advisory: '', sodium: null, basis: 'Not supplied', observation: undefined }); router.push('/review'); }} />
+    <Button title="Enter label details manually" icon="text-box-outline" secondary onPress={() => startManual(isUsableBarcode(barcode) ? barcode.trim() : '')} />
   </Screen>;
 }
 
@@ -138,6 +175,11 @@ const st = StyleSheet.create({
   searchAction: { width: 44, height: 44, borderRadius: radius.control, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
   message: { flexDirection: 'row', gap: 8, backgroundColor: colors.amberBg, borderRadius: radius.chip, padding: 12 },
   messageText: { color: colors.amberInk, flex: 1, ...typography.meta },
+  fallbackCard: { gap: 12, backgroundColor: colors.amberBg },
+  fallbackHead: { flexDirection: 'row', alignItems: 'flex-start', gap: 9 },
+  fallbackTitle: { color: colors.amberInk, fontSize: 14, lineHeight: 20, fontWeight: '800' },
+  fallbackText: { color: colors.amberInk, ...typography.meta, marginTop: 4 },
+  fallbackNote: { ...typography.caption, color: colors.amberInk },
   orRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   rule: { height: 1, backgroundColor: colors.rule, flex: 1 },
   orText: { fontSize: 11, lineHeight: 15, fontWeight: '800', letterSpacing: 1, color: colors.subtle },
