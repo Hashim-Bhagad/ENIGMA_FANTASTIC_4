@@ -44,6 +44,7 @@ _SCOPE_SETTINGS = {
     "recommendations": "rate_limit_recommendations_per_minute",
     "barcode_scan": "rate_limit_barcode_scan_per_minute",
     "dish_draft": "rate_limit_dish_draft_per_minute",
+    "dish_review": "rate_limit_dish_review_per_minute",
     "recipes_live": "rate_limit_recipes_live_per_minute",
 }
 

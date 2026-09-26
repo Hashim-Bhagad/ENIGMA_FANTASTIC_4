@@ -18,6 +18,8 @@ from app.security import current_user
 
 logger = logging.getLogger(__name__)
 
+MAX_PHOTO_BYTES = 5 * 1024 * 1024
+
 router = APIRouter(prefix="/api/labels", tags=["label extraction"])
 
 
@@ -49,11 +51,15 @@ async def extract(
         if barcode and not re.fullmatch(r"(?:[0-9]{8}|[0-9]{12,14})", barcode):
             raise HTTPException(422, "Enter an 8, 12, 13, or 14 digit barcode")
         barcode = barcode or None
-    content = await file.read(5 * 1024 * 1024 + 1)
-    if len(content) > 5 * 1024 * 1024:
+    content = await file.read(MAX_PHOTO_BYTES + 1)
+    if len(content) > MAX_PHOTO_BYTES:
+        # The stream is only read one byte past the cap, so report the size Starlette already
+        # knows rather than the truncated read length (it used to say "5.0 MB" for a 7.9 MB file).
+        known = getattr(file, "size", None)
+        size = f"{known / 1048576:.1f} MB" if known else f"over {MAX_PHOTO_BYTES // 1048576} MB"
         raise HTTPException(
             413,
-            f"Photo is {len(content) / 1048576:.1f} MB; the limit is 5 MB. "
+            f"Photo is {size}; the limit is {MAX_PHOTO_BYTES // 1048576} MB. "
             "Retake it at a lower resolution.",
         )
     if not content:

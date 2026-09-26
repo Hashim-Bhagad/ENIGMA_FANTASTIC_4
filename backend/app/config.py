@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     # before it answers, so the output budget must cover the reasoning trace plus the JSON.
     dish_draft_timeout: float = Field(default=45, gt=0, le=120)
     dish_draft_max_tokens: int = Field(default=3072, ge=128, le=8192)
+    # The wording fallback is a text call of the same shape as the draft, on a model that
+    # reasons before it answers, so its budget also has to cover the reasoning trace.
+    dish_review_timeout: float = Field(default=45, gt=0, le=120)
+    dish_review_max_tokens: int = Field(default=3072, ge=128, le=8192)
     # Live Food.com recipe search. The actor charges per returned result, so
     # recipes_live_max_items is the spend cap and recipes_live_timeout_seconds
     # bounds the wall clock; both are enforced in app/services/recipes_live.py.
@@ -52,6 +56,7 @@ class Settings(BaseSettings):
     rate_limit_recommendations_per_minute: int = Field(default=20, ge=1, le=10000)
     rate_limit_barcode_scan_per_minute: int = Field(default=20, ge=1, le=10000)
     rate_limit_dish_draft_per_minute: int = Field(default=10, ge=1, le=10000)
+    rate_limit_dish_review_per_minute: int = Field(default=10, ge=1, le=10000)
     rate_limit_recipes_live_per_minute: int = Field(default=5, ge=1, le=10000)
     # Reject any request body larger than this before a route can buffer it.
     # Phone photos are routinely 5-10 MiB; the upload routes keep their own tighter caps

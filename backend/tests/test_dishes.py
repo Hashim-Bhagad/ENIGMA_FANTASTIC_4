@@ -590,3 +590,63 @@ def test_kitchen_aliases_and_staples_resolve_everyday_wording(db_engine):
     # Sodium comes from rice flakes plus the weighed salt, then scales to per 100 g of the dish.
     assert estimate["nutrients"]["sodium_mg"] and estimate["nutrients"]["sodium_mg"] > 100
     assert any("staple" in item.lower() for item in estimate["assumptions"])
+
+
+def test_alternatives_are_screened_against_every_recorded_restriction(db_engine):
+    """A swap for one restriction must never carry another one the user recorded."""
+    from app.schemas import ProfileData
+    from app.services.dish_alternatives import build_alternatives, conflicts_for
+
+    profile = ProfileData.model_validate({"allergies": ["milk"], "ingredient_exclusions": ["soy"]})
+    assert conflicts_for("unsweetened soy drink", profile) == ["exclusion:soy"]
+    assert conflicts_for("oat drink", profile) == []
+
+    # 1. The reviewed catalogue answers for a covered wording and none of its options conflict.
+    catalogue_block = build_alternatives(
+        {"matches": [{"input_text": "Milk", "name": "Milk, whole, Cow"}], "unmatched": []},
+        {"conflicts": [{"code": "allergen_declared", "restriction": "milk", "evidence": ["milk"]}]},
+        profile,
+    )
+    assert catalogue_block["entries"], "a milk conflict must produce a swap entry"
+    assert {option["text"] for option in catalogue_block["entries"][0]["options"]} == {
+        "unsweetened oat drink",
+        "unsweetened rice drink",
+    }
+    assert catalogue_block["entries"][0]["source"] == "catalogue"
+
+    # 2. For a wording the catalogue cannot cover, the model's options are screened: the one
+    #    carrying a second recorded restriction is dropped before the user ever sees it.
+    model_block = build_alternatives(
+        {"matches": [], "unmatched": [{"input_text": "Khoya", "reason": "not matched"}]},
+        {
+            "conflicts": [
+                {"code": "allergen_declared", "restriction": "milk", "evidence": ["Khoya"]}
+            ]
+        },
+        profile,
+        {
+            "Khoya": [
+                {"text": "unsweetened soy drink", "why": "dairy-free"},
+                {"text": "coconut milk", "why": "creamy texture"},
+            ]
+        },
+    )
+    entry = model_block["entries"][0]
+    assert entry["source"] == "model"
+    options = [option["text"] for option in entry["options"]]
+    assert options == ["coconut milk"], options
+    assert any("removed" in note for note in model_block["notes"])
+    assert any("not allergy-safety confirmation" in note for note in model_block["notes"])
+
+
+def test_no_alternatives_when_nothing_was_flagged(db_engine):
+    from app.schemas import ProfileData
+    from app.services.dish_alternatives import build_alternatives
+
+    block = build_alternatives(
+        {"matches": [{"input_text": "Rice", "name": "Rice, flakes"}], "unmatched": []},
+        {"conflicts": [], "considerations": [], "unresolved": []},
+        ProfileData.model_validate({"allergies": ["milk"]}),
+    )
+    assert block["entries"] == []
+    assert any("no swap is suggested" in note for note in block["notes"])

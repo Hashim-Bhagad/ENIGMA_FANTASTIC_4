@@ -176,6 +176,9 @@ class DishRequest(StrictModel):
     # The cook confirms the list is complete and the dish has no packaged advisory panel.
     declarations_confirmed: bool = False
     portion_g: Positive | None = None
+    # Optional model pass over ingredient wording the reference vocabulary could not resolve.
+    # It is appended, defaults on, and can be turned off per request.
+    use_model_review: bool = True
 
 
 class Finding(ResponseModel):
