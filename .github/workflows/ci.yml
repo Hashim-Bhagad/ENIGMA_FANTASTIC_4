@@ -61,8 +61,15 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Install dependencies
         run: npm ci
+      # Expo writes typed routes into .expo/types during `expo start`, and CI never has them.
+      # app/_layout.tsx reads segments through a string view so the typecheck does not depend
+      # on a generated file; the export step below proves the bundle still builds.
       - name: Typecheck
         run: npx tsc --noEmit
+      - name: Build web bundle
+        env:
+          EXPO_NO_TELEMETRY: "1"
+        run: npx expo export --platform web --output-dir /tmp/expo-export
       - name: Tests
         run: npm run test --if-present
       - name: Lint
