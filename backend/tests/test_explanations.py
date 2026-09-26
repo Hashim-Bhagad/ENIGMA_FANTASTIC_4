@@ -4,10 +4,9 @@ from app.schemas import FoodObservation, ProfileData
 from app.services.assessment import RULE_VERSION, assess
 from app.services.conditions import awareness_codes  # noqa: E402
 
-# Fixed engine codes plus every code the condition registry can emit, so adding a
-# registry entry extends the contract instead of breaking this test.
-STABLE_CODES = {
-    *awareness_codes(),
+# Codes the deterministic engine itself emits. Every one must be exercised by a scenario
+# below; registry-driven condition codes are additional and covered per pack elsewhere.
+ENGINE_CODES = {
     "allergen_declared",
     "allergen_precautionary",
     "allergen_source_reported",
@@ -21,13 +20,10 @@ STABLE_CODES = {
     "limit_daily_contribution",
     "limit_portion_within",
     "goal_nutrient_unknown",
-    "condition_carbohydrate_awareness",
-    "condition_carbohydrate_unknown",
-    "condition_sodium_awareness",
-    "condition_sodium_unknown",
-    "condition_ckd_limits_only",
     "condition_pack_unsupported",
 }
+# Everything a finding may carry: fixed engine codes plus whatever the registry can emit.
+STABLE_CODES = {*ENGINE_CODES, *awareness_codes()}
 
 
 def food(name="Record", **changes):
@@ -95,7 +91,7 @@ SCENARIOS = [
         None,
     ),
     ("ckd", ProfileData(conditions=["ckd"]), {}, None),
-    ("unsupported", ProfileData(conditions=["gout"]), {}, None),
+    ("unsupported", ProfileData(conditions=["ehlers-danlos syndrome"]), {}, None),
 ]
 
 
@@ -108,7 +104,8 @@ def test_every_stable_code_is_emitted_by_at_least_one_scenario():
     for _name, profile, changes, portion in SCENARIOS:
         result = assess(profile, food(**changes), portion)
         emitted.update(finding["code"] for finding in findings(result))
-    assert emitted == STABLE_CODES
+    assert ENGINE_CODES <= emitted, ENGINE_CODES - emitted
+    assert emitted <= STABLE_CODES, emitted - STABLE_CODES
 
 
 def test_findings_carry_the_full_shape_and_valid_groups():

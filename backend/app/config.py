@@ -25,11 +25,18 @@ class Settings(BaseSettings):
     fireworks_model: str = "accounts/fireworks/models/deepseek-v4p1-flash"
     label_timeout: float = Field(default=45, gt=0, le=90)
     label_max_tokens: int = Field(default=2048, ge=128, le=4096)
+    # Health-report reading is a bigger document than a label, so it gets its own
+    # timeout, output budget, upload cap and page cap.
+    report_timeout: float = Field(default=60, gt=0, le=120)
+    report_max_tokens: int = Field(default=3072, ge=128, le=8192)
+    report_max_bytes: int = Field(default=10 * 1024 * 1024, ge=1024)
+    report_max_pages: int = Field(default=5, ge=1, le=20)
     # Per-process token-bucket rate limiting. Limits are resolved per request, so
     # changing them (or RATE_LIMIT_ENABLED) takes effect without a rebuild.
     rate_limit_enabled: bool = True
     rate_limit_auth_per_minute: int = Field(default=10, ge=1, le=10000)
     rate_limit_label_extract_per_minute: int = Field(default=10, ge=1, le=10000)
+    rate_limit_report_extract_per_minute: int = Field(default=10, ge=1, le=10000)
     rate_limit_provider_reads_per_minute: int = Field(default=30, ge=1, le=10000)
     rate_limit_recommendations_per_minute: int = Field(default=20, ge=1, le=10000)
     # Reject any request body larger than this before a route can buffer it.

@@ -14,7 +14,8 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session

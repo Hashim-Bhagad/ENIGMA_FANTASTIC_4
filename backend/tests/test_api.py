@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from uuid import uuid4
 
 import jwt
@@ -248,6 +249,12 @@ def test_unconfigured_label_extraction_returns_manual_entry_path(client):
 
 
 def test_readiness_requires_current_nonempty_migration_revision(client, db_engine):
+    # The installed revision must equal the packaged head, so read the head from the
+    # migration scripts instead of hardcoding a revision that a new migration moves.
+    from alembic.script import ScriptDirectory
+
+    migrations = Path(__file__).resolve().parents[1] / "migrations"
+    head = next(iter(ScriptDirectory(str(migrations)).get_heads()))
     assert client.get("/health/ready").status_code == 503
     with db_engine.begin() as connection:
         connection.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32))"))
@@ -257,7 +264,9 @@ def test_readiness_requires_current_nonempty_migration_revision(client, db_engin
             connection.execute(text("INSERT INTO alembic_version VALUES ('older_revision')"))
         assert client.get("/health/ready").status_code == 503
         with db_engine.begin() as connection:
-            connection.execute(text("UPDATE alembic_version SET version_num = '0001_initial'"))
+            connection.execute(
+                text("UPDATE alembic_version SET version_num = :head"), {"head": head}
+            )
         assert client.get("/health/ready").json()["migrations"] == "current"
     finally:
         with db_engine.begin() as connection:

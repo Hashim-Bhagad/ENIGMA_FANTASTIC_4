@@ -99,6 +99,31 @@ export type DishAssessment = {
 };
 export type ReferenceFood = { code: string; name: string; data: Record<string, unknown>; source: string };
 export type ReferenceFoodsResult = { foods: ReferenceFood[]; usage: string };
+
+/** A type-ahead waits for this many characters and this long a pause before asking the server. */
+export const TYPE_AHEAD_MIN_CHARS = 2;
+export const TYPE_AHEAD_DELAY_MS = 250;
+
+/** What tapping one reference suggestion does, and what it does not do. */
+export const REFERENCE_MATCH_NOTE = 'Reference match only: it supplies the composition used for the estimate and keeps the wording you typed.';
+
+/** The term a type-ahead should search for, or null while the typed text is too short to be useful. */
+export function typeAheadTerm(text: string, minLength = TYPE_AHEAD_MIN_CHARS): string | null {
+  const term = text.trim();
+  return term.length >= minLength ? term : null;
+}
+
+/** One line for a single reference suggestion: the name the backend ranked first, then its code. */
+export function referenceSuggestionLabel(food: ReferenceFood): string {
+  return `${food.name} · ${food.code}`;
+}
+
+/** Plain-language meaning of a meal-check status, so a status word is never left unexplained. */
+export function dishStatusExplanation(status: AssessmentStatus): string {
+  if (status === 'recorded_conflict') return 'At least one ingredient matched a restriction recorded in your profile, so this meal fails a recorded check.';
+  if (status === 'needs_information') return 'A required check could not complete with the information available, so this result is inconclusive.';
+  return 'Every supported check ran on the available ingredient declarations and found no match with your recorded restrictions. This is not an overall safety verdict.';
+}
 export type CatalogResponse = { products: { id: string; food: FoodObservation; updated_at: string }[]; query_type?: string; live_requested?: boolean; live_status?: string; message?: string; skipped_records?: number };
 export type Recipe = { id: string; name: string; ingredients: DishIngredient[]; source: Record<string, unknown>; review_status: string; warnings: string[] };
 export type RecipePage = { recipes: Recipe[]; message?: string; pending_count?: number };
@@ -293,7 +318,7 @@ export const api = {
   recipes: (token: string, query: string) => request<RecipePage>('/api/recipes?q=' + encodeURIComponent(query), token),
   barcode: (token: string, code: string) => request<{ id: string; food: FoodObservation; updated_at: string; lookup_source: string }>(`/api/products/barcode/${encodeURIComponent(code)}`, token),
   provenance: (token: string, id: string) => request<ProductProvenance>(`/api/products/${encodeURIComponent(id)}/provenance`, token),
-  referenceFoods: (token: string, q: string) => request<ReferenceFoodsResult>('/api/reference-foods?q=' + encodeURIComponent(q), token),
+  referenceFoods: (token: string, q: string, limit?: number) => request<ReferenceFoodsResult>(`/api/reference-foods?q=${encodeURIComponent(q)}${limit == null ? '' : `&limit=${limit}`}`, token),
   extractLabel: async (token: string, photo: Photo) => {
     const form = new FormData();
     if (Platform.OS === 'web') {

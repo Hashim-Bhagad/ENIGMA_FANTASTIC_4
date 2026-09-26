@@ -136,7 +136,7 @@ export default function ReportsScreen() {
         : <View style={st.actions}><Button title="Take a report photo" icon="camera-outline" loading={extracting} disabled={extracting} onPress={() => void choose('camera')} /><Button title="Choose a report photo" icon="image-outline" secondary disabled={extracting} onPress={() => void choose('image')} /><Text style={st.note}>PDF upload is available in the browser version. On this device, photograph the report or choose a saved image.</Text></View>}
       {extracting ? <View style={st.progress}><ActivityIndicator size="small" color={colors.primary} /><Text style={st.cardSub}>Reading the document… this can take up to a minute.</Text></View> : null}
       {message ? <Text style={st.message}>{message}</Text> : null}
-      <Text style={st.note}>The uploaded file itself is not stored. Only the extracted values, a short hash of the file, and what you confirm are kept.</Text>
+      <Text style={st.note}>A model reads the document and proposes the values below. The uploaded file itself is not stored: only the extracted values, a short hash of the file, and what you confirm are kept.</Text>
     </Card>
 
     {formError ? <Text accessibilityRole="alert" style={st.error}>{formError}</Text> : null}

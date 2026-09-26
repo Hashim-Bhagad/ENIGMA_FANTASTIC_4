@@ -19,7 +19,7 @@ from app.db import make_engine
 from app.integrations.apify import ApifyReader
 from app.integrations.off import normalize_apify_off
 from app.models import RecipeRecord, ReferenceFood
-from app.schemas import FoodObservation
+from app.schemas import DishIngredient, FoodObservation
 
 logger = logging.getLogger(__name__)
 
@@ -230,6 +230,41 @@ def import_demo(session: Session, path: Path):
     }
 
 
+
+def import_demo_recipes(session: Session, path: Path):
+    """Load the synthetic, clearly marked recipe templates used for the demo flow.
+
+    These exist so the cooked-meal screen has something to start from; they are
+    templates for one version of a dish, never a measurement of the serving eaten.
+    """
+    records = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(records, list) or not 1 <= len(records) <= 50:
+        raise ValueError("Demo recipes must be a list of 1 to 50 records")
+    imported = 0
+    for record in records:
+        if not isinstance(record, dict) or set(record) != {"id", "name", "raw", "source", "review_status"}:
+            raise ValueError("Each demo recipe needs id, name, raw, source and review_status")
+        if record["review_status"] != "validated":
+            raise ValueError("Demo recipes must be marked validated")
+        ingredients = record["raw"].get("ingredients")
+        if not isinstance(ingredients, list) or not 1 <= len(ingredients) <= 40:
+            raise ValueError("A demo recipe needs 1 to 40 ingredients")
+        for item in ingredients:
+            DishIngredient.model_validate(item)
+        row = session.get(RecipeRecord, record["id"]) or RecipeRecord(id=record["id"])
+        row.name = record["name"]
+        row.raw = record["raw"]
+        row.source = {**record["source"], "kind": "demo"}
+        row.review_status = "validated"
+        session.add(row)
+        imported += 1
+    session.commit()
+    return {
+        "demo_recipes": imported,
+        "warning": "Synthetic templates for one version of a dish; confirm the actual serving.",
+    }
+
+
 def import_reviewed_products(session: Session, path: Path):
     """Load operator-reviewed package declarations, never inferred OFF facts.
 
@@ -283,6 +318,9 @@ def main():
     apify.add_argument("--category")
     demo = sub.add_parser("demo")
     demo.add_argument("--file", type=Path, default=Path("data/demo_products.json"))
+    demo.add_argument(
+        "--recipes", type=Path, default=Path("data/demo_recipes.json"), help="synthetic recipe templates"
+    )
     reviewed = sub.add_parser("reviewed-products")
     reviewed.add_argument("--file", type=Path, required=True)
     args = parser.parse_args()
@@ -301,6 +339,10 @@ def main():
             )
         elif args.command == "reviewed-products":
             result = import_reviewed_products(session, args.file)
+        elif args.command == "demo":
+            result = import_demo(session, args.file)
+            if args.recipes is not None:
+                result = {**result, **import_demo_recipes(session, args.recipes)}
         else:
             result = import_demo(session, args.file)
     print(json.dumps(result))

@@ -39,6 +39,7 @@ logger = logging.getLogger(__name__)
 _SCOPE_SETTINGS = {
     "auth": "rate_limit_auth_per_minute",
     "label_extract": "rate_limit_label_extract_per_minute",
+    "report_extract": "rate_limit_report_extract_per_minute",
     "provider_reads": "rate_limit_provider_reads_per_minute",
     "recommendations": "rate_limit_recommendations_per_minute",
 }

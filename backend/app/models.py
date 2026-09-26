@@ -1,7 +1,7 @@
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -85,3 +85,27 @@ class RecipeRecord(Base):
     raw: Mapped[dict] = mapped_column(DOCUMENT)
     source: Mapped[dict] = mapped_column(DOCUMENT)
     review_status: Mapped[str] = mapped_column(String(50), default="pending_schema_validation")
+
+
+class HealthReport(Base):
+    """One uploaded health report: the file's provenance plus the confirmed values.
+
+    The bytes of the uploaded file are never stored or logged; ``source`` keeps only
+    the file's name, media type, size, SHA-256 and page count. ``parameters`` holds
+    exactly the ``LabParameter`` dumps the deterministic builder produced, so the
+    confirmed values need no translation when another service reads this row.
+    """
+
+    __tablename__ = "health_reports"
+    __table_args__ = (Index("ix_health_reports_owner_created", "owner_id", "created_at"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    status: Mapped[str] = mapped_column(String(20), default="extracted")
+    collected_on: Mapped[str | None] = mapped_column(String(20))
+    parameters: Mapped[list] = mapped_column(DOCUMENT, default=list)
+    warnings: Mapped[list] = mapped_column(DOCUMENT, default=list)
+    source: Mapped[dict] = mapped_column(DOCUMENT, default=dict)
+    provider: Mapped[dict] = mapped_column(DOCUMENT, default=dict)
+    note: Mapped[str] = mapped_column(String(500), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
