@@ -90,7 +90,9 @@ CONDITIONS = [
             "How should carbohydrate be counted for the insulin plan I use?",
             "Which foods should I adjust when my readings run high?",
         ],
-        "sources": ["https://www.niddk.nih.gov/health-information/diabetes/overview/what-is-diabetes/type-1-diabetes"],
+        "sources": [
+            "https://www.niddk.nih.gov/health-information/diabetes/overview/what-is-diabetes/type-1-diabetes"
+        ],
         "lab_links": ["hba1c_percent", "fasting_glucose_mg_dl"],
         "guidance_confidence": "clinician_only",
     },
@@ -98,7 +100,14 @@ CONDITIONS = [
         "slug": "type_2_diabetes",
         "label": "Type 2 diabetes",
         "category": "metabolic",
-        "aliases": ["type 2 diabetes", "t2dm", "diabetes", "sugar problem", "sugar disease", "madhumeh"],
+        "aliases": [
+            "type 2 diabetes",
+            "t2dm",
+            "diabetes",
+            "sugar problem",
+            "sugar disease",
+            "madhumeh",
+        ],
         "nutrient_focus": ["carbohydrate", "added sugars", "saturated fat", "fibre"],
         "awareness": (
             "Type 2 diabetes is a condition where blood glucose runs high because insulin is "
@@ -121,7 +130,12 @@ CONDITIONS = [
         "slug": "prediabetes",
         "label": "Prediabetes",
         "category": "metabolic",
-        "aliases": ["pre-diabetes", "borderline diabetes", "impaired glucose tolerance", "impaired fasting glucose"],
+        "aliases": [
+            "pre-diabetes",
+            "borderline diabetes",
+            "impaired glucose tolerance",
+            "impaired fasting glucose",
+        ],
         "nutrient_focus": ["added sugars", "carbohydrate", "fibre"],
         "awareness": (
             "Prediabetes means blood glucose is above the usual range but not yet in the "
@@ -153,7 +167,12 @@ CONDITIONS = [
             "Which single change would help most of these readings at once?",
         ],
         "sources": ["https://www.heart.org/en/health-topics/metabolic-syndrome"],
-        "lab_links": ["hba1c_percent", "fasting_glucose_mg_dl", "triglycerides_mg_dl", "hdl_cholesterol_mg_dl"],
+        "lab_links": [
+            "hba1c_percent",
+            "fasting_glucose_mg_dl",
+            "triglycerides_mg_dl",
+            "hdl_cholesterol_mg_dl",
+        ],
         "guidance_confidence": "general_wellbeing",
     },
     {
@@ -179,7 +198,13 @@ CONDITIONS = [
         "slug": "dyslipidaemia",
         "label": "Dyslipidaemia",
         "category": "metabolic",
-        "aliases": ["high cholesterol", "cholesterol problem", "high triglycerides", "lipid problem", "high ldl"],
+        "aliases": [
+            "high cholesterol",
+            "cholesterol problem",
+            "high triglycerides",
+            "lipid problem",
+            "high ldl",
+        ],
         "nutrient_focus": ["saturated fat", "fibre", "added sugars"],
         "awareness": (
             "Dyslipidaemia means one or more blood fats are outside the usual range, such as "
@@ -194,7 +219,12 @@ CONDITIONS = [
             "https://www.heart.org/en/health-topics/cholesterol",
             "https://www.nhlbi.nih.gov/health/blood-cholesterol",
         ],
-        "lab_links": ["total_cholesterol_mg_dl", "ldl_cholesterol_mg_dl", "hdl_cholesterol_mg_dl", "triglycerides_mg_dl"],
+        "lab_links": [
+            "total_cholesterol_mg_dl",
+            "ldl_cholesterol_mg_dl",
+            "hdl_cholesterol_mg_dl",
+            "triglycerides_mg_dl",
+        ],
         "guidance_confidence": "established",
     },
     {
@@ -220,7 +250,14 @@ CONDITIONS = [
         "slug": "nafld",
         "label": "Fatty liver disease (NAFLD/MASLD)",
         "category": "metabolic",
-        "aliases": ["fatty liver", "nafld", "masld", "liver fat", "hepatic steatosis", "fatty liver disease"],
+        "aliases": [
+            "fatty liver",
+            "nafld",
+            "masld",
+            "liver fat",
+            "hepatic steatosis",
+            "fatty liver disease",
+        ],
         "nutrient_focus": ["added sugars", "saturated fat", "energy", "fibre"],
         "awareness": (
             "Fatty liver disease is fat accumulation in the liver, often linked to weight, "
@@ -239,7 +276,14 @@ CONDITIONS = [
         "slug": "hypertension",
         "label": "Hypertension",
         "category": "cardiovascular",
-        "aliases": ["high blood pressure", "bp", "blood pressure problem", "raised blood pressure"],
+        "aliases": [
+            "high blood pressure",
+            "bp",
+            "high bp",
+            "htn",
+            "blood pressure problem",
+            "raised blood pressure",
+        ],
         "nutrient_focus": ["sodium", "potassium", "alcohol", "energy"],
         "awareness": (
             "Hypertension is blood pressure that stays above the usual range, which raises "
@@ -318,7 +362,13 @@ CONDITIONS = [
         "slug": "ckd",
         "label": "Chronic kidney disease",
         "category": "renal",
-        "aliases": ["chronic kidney disease", "kidney disease", "kidney problem", "renal disease", "ckd"],
+        "aliases": [
+            "chronic kidney disease",
+            "kidney disease",
+            "kidney problem",
+            "renal disease",
+            "ckd",
+        ],
         "nutrient_focus": ["sodium", "potassium", "phosphorus", "protein"],
         "awareness": (
             "Chronic kidney disease means kidney function is reduced over time. Sodium, "
@@ -329,7 +379,9 @@ CONDITIONS = [
             "Which stage am I at, and what does that change in my diet?",
             "Which of potassium, phosphorus or protein should I adjust first?",
         ],
-        "sources": ["https://www.niddk.nih.gov/health-information/kidney-disease/chronic-kidney-disease-ckd"],
+        "sources": [
+            "https://www.niddk.nih.gov/health-information/kidney-disease/chronic-kidney-disease-ckd"
+        ],
         "lab_links": ["egfr_ml_min", "creatinine_mg_dl", "potassium_meq_l", "phosphorus_mg_dl"],
         "guidance_confidence": "clinician_only",
     },
@@ -348,7 +400,9 @@ CONDITIONS = [
             "Which foods raise my potassium the most?",
             "Do my medicines change how I should handle potassium?",
         ],
-        "sources": ["https://www.niddk.nih.gov/health-information/kidney-disease/chronic-kidney-disease-ckd"],
+        "sources": [
+            "https://www.niddk.nih.gov/health-information/kidney-disease/chronic-kidney-disease-ckd"
+        ],
         "lab_links": ["potassium_meq_l", "egfr_ml_min"],
         "guidance_confidence": "clinician_only",
     },
@@ -367,7 +421,9 @@ CONDITIONS = [
             "Which foods contribute most phosphate for me?",
             "How should food phosphate fit with my binders and timing?",
         ],
-        "sources": ["https://www.niddk.nih.gov/health-information/kidney-disease/chronic-kidney-disease-ckd"],
+        "sources": [
+            "https://www.niddk.nih.gov/health-information/kidney-disease/chronic-kidney-disease-ckd"
+        ],
         "lab_links": ["phosphorus_mg_dl", "egfr_ml_min"],
         "guidance_confidence": "clinician_only",
     },
@@ -375,7 +431,13 @@ CONDITIONS = [
         "slug": "ibs",
         "label": "Irritable bowel syndrome",
         "category": "gastrointestinal",
-        "aliases": ["irritable bowel syndrome", "spastic colon", "mucus colitis", "gas problem", "ibs"],
+        "aliases": [
+            "irritable bowel syndrome",
+            "spastic colon",
+            "mucus colitis",
+            "gas problem",
+            "ibs",
+        ],
         "nutrient_focus": ["fibre", "fluid", "caffeine"],
         "awareness": (
             "Irritable bowel syndrome is a functional gut disorder causing pain, bloating and "
@@ -386,7 +448,9 @@ CONDITIONS = [
             "Which fibre type suits my predominant symptom?",
             "Should I trial a structured elimination diet with support?",
         ],
-        "sources": ["https://www.niddk.nih.gov/health-information/digestive-diseases/irritable-bowel-syndrome"],
+        "sources": [
+            "https://www.niddk.nih.gov/health-information/digestive-diseases/irritable-bowel-syndrome"
+        ],
         "lab_links": ["crp_mg_l", "hemoglobin_g_dl"],
         "guidance_confidence": "general_wellbeing",
     },
@@ -405,7 +469,9 @@ CONDITIONS = [
             "Which nutrients should be monitored with my disease pattern?",
             "What should I eat during a flare?",
         ],
-        "sources": ["https://www.niddk.nih.gov/health-information/digestive-diseases/crohns-disease"],
+        "sources": [
+            "https://www.niddk.nih.gov/health-information/digestive-diseases/crohns-disease"
+        ],
         "lab_links": ["hemoglobin_g_dl", "ferritin_ng_ml", "vitamin_b12_pg_ml", "albumin_g_dl"],
         "guidance_confidence": "clinician_only",
     },
@@ -424,8 +490,16 @@ CONDITIONS = [
             "How should gluten-free eating change my fibre and B-vitamin intake?",
             "Which nutrients need monitoring with my coeliac disease?",
         ],
-        "sources": ["https://www.niddk.nih.gov/health-information/digestive-diseases/celiac-disease"],
-        "lab_links": ["hemoglobin_g_dl", "ferritin_ng_ml", "folate_ng_ml", "vitamin_d_ng_ml", "calcium_mg_dl"],
+        "sources": [
+            "https://www.niddk.nih.gov/health-information/digestive-diseases/celiac-disease"
+        ],
+        "lab_links": [
+            "hemoglobin_g_dl",
+            "ferritin_ng_ml",
+            "folate_ng_ml",
+            "vitamin_d_ng_ml",
+            "calcium_mg_dl",
+        ],
         "guidance_confidence": "established",
     },
     {
@@ -443,7 +517,9 @@ CONDITIONS = [
             "How much lactose am I likely to tolerate per meal?",
             "How should I replace calcium if I cut dairy?",
         ],
-        "sources": ["https://www.niddk.nih.gov/health-information/digestive-diseases/lactose-intolerance"],
+        "sources": [
+            "https://www.niddk.nih.gov/health-information/digestive-diseases/lactose-intolerance"
+        ],
         "lab_links": ["calcium_mg_dl", "vitamin_d_ng_ml"],
         "guidance_confidence": "general_wellbeing",
     },
@@ -451,7 +527,14 @@ CONDITIONS = [
         "slug": "gerd",
         "label": "Acid reflux (GERD)",
         "category": "gastrointestinal",
-        "aliases": ["acid reflux", "gastro-oesophageal reflux", "gastroesophageal reflux", "heartburn", "acidity", "gerd"],
+        "aliases": [
+            "acid reflux",
+            "gastro-oesophageal reflux",
+            "gastroesophageal reflux",
+            "heartburn",
+            "acidity",
+            "gerd",
+        ],
         "nutrient_focus": ["fat", "energy", "caffeine"],
         "awareness": (
             "Gastro-oesophageal reflux disease is when stomach contents flow back into the "
@@ -462,7 +545,9 @@ CONDITIONS = [
             "Which foods most provoke my reflux?",
             "How should meal timing change for my symptoms?",
         ],
-        "sources": ["https://www.niddk.nih.gov/health-information/digestive-diseases/acid-reflux-ger-gerd-adults"],
+        "sources": [
+            "https://www.niddk.nih.gov/health-information/digestive-diseases/acid-reflux-ger-gerd-adults"
+        ],
         "lab_links": [],
         "guidance_confidence": "general_wellbeing",
     },
@@ -470,7 +555,13 @@ CONDITIONS = [
         "slug": "post_bariatric_surgery",
         "label": "Post-bariatric surgery",
         "category": "gastrointestinal",
-        "aliases": ["bariatric surgery", "gastric bypass", "sleeve gastrectomy", "weight loss surgery", "gastric sleeve"],
+        "aliases": [
+            "bariatric surgery",
+            "gastric bypass",
+            "sleeve gastrectomy",
+            "weight loss surgery",
+            "gastric sleeve",
+        ],
         "nutrient_focus": ["protein", "fibre", "sodium", "added sugars"],
         "awareness": (
             "After bariatric surgery the stomach holds much less, so portion size and eating "
@@ -481,7 +572,9 @@ CONDITIONS = [
             "What protein amount should I reach each day?",
             "Which supplements and monitoring does my surgery type need?",
         ],
-        "sources": ["https://www.niddk.nih.gov/health-information/weight-management/bariatric-surgery"],
+        "sources": [
+            "https://www.niddk.nih.gov/health-information/weight-management/bariatric-surgery"
+        ],
         "lab_links": ["albumin_g_dl", "vitamin_b12_pg_ml", "iron", "vitamin_d_ng_ml"],
         "guidance_confidence": "clinician_only",
     },
@@ -489,7 +582,13 @@ CONDITIONS = [
         "slug": "hypothyroidism",
         "label": "Hypothyroidism",
         "category": "endocrine",
-        "aliases": ["underactive thyroid", "low thyroid", "thyroid problem", "thyroid", "hypothyroid"],
+        "aliases": [
+            "underactive thyroid",
+            "low thyroid",
+            "thyroid problem",
+            "thyroid",
+            "hypothyroid",
+        ],
         "nutrient_focus": ["iodine", "selenium", "fibre", "energy"],
         "awareness": (
             "Hypothyroidism is an underactive thyroid, which slows metabolism and can cause "
@@ -500,7 +599,9 @@ CONDITIONS = [
             "How should I time my thyroid medicine against food and supplements?",
             "Should my iodine intake change?",
         ],
-        "sources": ["https://www.niddk.nih.gov/health-information/endocrine-diseases/hypothyroidism"],
+        "sources": [
+            "https://www.niddk.nih.gov/health-information/endocrine-diseases/hypothyroidism"
+        ],
         "lab_links": ["tsh_miu_l", "t4_ug_dl", "t3_ng_dl"],
         "guidance_confidence": "established",
     },
@@ -508,7 +609,13 @@ CONDITIONS = [
         "slug": "hyperthyroidism",
         "label": "Hyperthyroidism",
         "category": "endocrine",
-        "aliases": ["overactive thyroid", "high thyroid", "thyrotoxicosis", "grave's disease", "graves disease"],
+        "aliases": [
+            "overactive thyroid",
+            "high thyroid",
+            "thyrotoxicosis",
+            "grave's disease",
+            "graves disease",
+        ],
         "nutrient_focus": ["iodine", "calcium", "energy", "protein"],
         "awareness": (
             "Hyperthyroidism is an overactive thyroid, which speeds metabolism and can cause "
@@ -519,7 +626,9 @@ CONDITIONS = [
             "Should I limit iodine-rich foods while my thyroid is overactive?",
             "Do my bones need checking with this condition?",
         ],
-        "sources": ["https://www.niddk.nih.gov/health-information/endocrine-diseases/hyperthyroidism"],
+        "sources": [
+            "https://www.niddk.nih.gov/health-information/endocrine-diseases/hyperthyroidism"
+        ],
         "lab_links": ["tsh_miu_l", "t4_ug_dl", "calcium_mg_dl"],
         "guidance_confidence": "clinician_only",
     },
@@ -527,7 +636,13 @@ CONDITIONS = [
         "slug": "pcos",
         "label": "Polycystic ovary syndrome",
         "category": "endocrine",
-        "aliases": ["pcos", "polycystic ovary syndrome", "polycystic ovaries", "pcod", "hormone problem"],
+        "aliases": [
+            "pcos",
+            "polycystic ovary syndrome",
+            "polycystic ovaries",
+            "pcod",
+            "hormone problem",
+        ],
         "nutrient_focus": ["added sugars", "carbohydrate", "saturated fat", "fibre"],
         "awareness": (
             "Polycystic ovary syndrome affects hormones and ovulation and is often linked to "
@@ -539,14 +654,27 @@ CONDITIONS = [
             "Which eating pattern would help my symptoms most?",
         ],
         "sources": ["https://www.nhs.uk/conditions/polycystic-ovary-syndrome/"],
-        "lab_links": ["fasting_glucose_mg_dl", "hba1c_percent", "triglycerides_mg_dl", "hdl_cholesterol_mg_dl"],
+        "lab_links": [
+            "fasting_glucose_mg_dl",
+            "hba1c_percent",
+            "triglycerides_mg_dl",
+            "hdl_cholesterol_mg_dl",
+        ],
         "guidance_confidence": "general_wellbeing",
     },
     {
         "slug": "iron_deficiency_anaemia",
         "label": "Iron-deficiency anaemia",
         "category": "haematologic",
-        "aliases": ["anaemia", "anemia", "low haemoglobin", "low hemoglobin", "iron deficiency", "low iron", "khoon ki kami"],
+        "aliases": [
+            "anaemia",
+            "anemia",
+            "low haemoglobin",
+            "low hemoglobin",
+            "iron deficiency",
+            "low iron",
+            "khoon ki kami",
+        ],
         "nutrient_focus": ["iron", "vitamin C", "folate", "vitamin B12"],
         "awareness": (
             "Iron-deficiency anaemia means low haemoglobin because iron stores are depleted. "
@@ -584,7 +712,12 @@ CONDITIONS = [
         "slug": "folate_deficiency",
         "label": "Folate deficiency",
         "category": "haematologic",
-        "aliases": ["folic acid deficiency", "low folate", "low folic acid", "vitamin b9 deficiency"],
+        "aliases": [
+            "folic acid deficiency",
+            "low folate",
+            "low folic acid",
+            "vitamin b9 deficiency",
+        ],
         "nutrient_focus": ["folate", "vitamin B12", "iron"],
         "awareness": (
             "Folate deficiency can cause anaemia and is especially important around pregnancy, "
@@ -622,7 +755,12 @@ CONDITIONS = [
         "slug": "vitamin_d_deficiency",
         "label": "Vitamin D deficiency",
         "category": "musculoskeletal",
-        "aliases": ["low vitamin d", "vitamin d problem", "vitamin d insufficiency", "sunlight vitamin deficiency"],
+        "aliases": [
+            "low vitamin d",
+            "vitamin d problem",
+            "vitamin d insufficiency",
+            "sunlight vitamin deficiency",
+        ],
         "nutrient_focus": ["vitamin D", "calcium"],
         "awareness": (
             "Vitamin D deficiency means the level needed for bone and muscle health is not "
@@ -642,7 +780,12 @@ CONDITIONS = [
         "slug": "gestational_diabetes",
         "label": "Gestational diabetes",
         "category": "reproductive",
-        "aliases": ["gdm", "diabetes in pregnancy", "pregnancy diabetes", "sugar problem in pregnancy"],
+        "aliases": [
+            "gdm",
+            "diabetes in pregnancy",
+            "pregnancy diabetes",
+            "sugar problem in pregnancy",
+        ],
         "nutrient_focus": ["carbohydrate", "added sugars", "fibre"],
         "awareness": (
             "Gestational diabetes is high blood glucose that first appears during pregnancy. "
@@ -691,7 +834,9 @@ CONDITIONS = [
             "How much extra energy and fluid do I need while feeding?",
             "Which nutrients should I keep taking in a supplement?",
         ],
-        "sources": ["https://www.cdc.gov/breastfeeding-special-circumstances/hcp/diet-micronutrients/index.html"],
+        "sources": [
+            "https://www.cdc.gov/breastfeeding-special-circumstances/hcp/diet-micronutrients/index.html"
+        ],
         "lab_links": ["hemoglobin_g_dl", "calcium_mg_dl", "vitamin_d_ng_ml"],
         "guidance_confidence": "general_wellbeing",
     },

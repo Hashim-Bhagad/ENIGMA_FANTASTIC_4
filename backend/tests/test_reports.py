@@ -102,9 +102,7 @@ def replies(*documents: dict) -> tuple[object, list[httpx.Request]]:
         return httpx.Response(
             200,
             json={
-                "choices": [
-                    {"finish_reason": "stop", "message": {"content": json.dumps(payload)}}
-                ]
+                "choices": [{"finish_reason": "stop", "message": {"content": json.dumps(payload)}}]
             },
         )
 
@@ -275,7 +273,9 @@ def test_profile_sex_and_age_choose_the_standard_range(client):
 
 def test_a_pdf_is_read_from_its_text_layer(client):
     handler, seen = replies(
-        document([reading("fasting_glucose_mg_dl", "Fasting Blood Glucose", 92.0, "mg/dL", 70.0, 100.0)])
+        document(
+            [reading("fasting_glucose_mg_dl", "Fasting Blood Glucose", 92.0, "mg/dL", 70.0, 100.0)]
+        )
     )
     headers = signup(client)
     client.app.state.models = provider(handler)
@@ -299,9 +299,7 @@ def test_a_scanned_pdf_asks_for_page_photos_and_never_calls_the_provider(client)
     handler, seen = replies(document([]))
     headers = signup(client)
     client.app.state.models = provider(handler)
-    response = upload(
-        client, headers, pdf_bytes([" "]), name="scan.pdf", media="application/pdf"
-    )
+    response = upload(client, headers, pdf_bytes([" "]), name="scan.pdf", media="application/pdf")
     assert response.status_code == 422, response.text
     assert response.json()["code"] == "validation_error"
     assert "no text layer" in response.json()["detail"]
@@ -313,9 +311,7 @@ def test_a_pdf_longer_than_the_page_cap_is_refused(client, monkeypatch):
     handler, seen = replies(document([]))
     headers = signup(client)
     client.app.state.models = provider(handler)
-    monkeypatch.setattr(
-        reports_module, "get_settings", lambda: Settings(report_max_pages=1)
-    )
+    monkeypatch.setattr(reports_module, "get_settings", lambda: Settings(report_max_pages=1))
     response = upload(
         client,
         headers,
@@ -368,7 +364,9 @@ def test_upload_limits_cover_size_and_media_type(client, monkeypatch):
     assert oversize.json()["code"] == "payload_too_large"
 
     monkeypatch.undo()
-    wrong_type = upload(client, headers, b"Fasting glucose 92 mg/dL", name="notes.txt", media="text/plain")
+    wrong_type = upload(
+        client, headers, b"Fasting glucose 92 mg/dL", name="notes.txt", media="text/plain"
+    )
     assert wrong_type.status_code == 415, wrong_type.text
     assert wrong_type.json()["code"] == "unsupported_media_type"
 
@@ -410,7 +408,11 @@ def test_confirm_rebuilds_every_edited_row(client, db_engine):
     confirmed = client.post(
         f"{REPORTS}/{extracted['id']}/confirm",
         headers=headers,
-        json={"parameters": rows, "collected_on": "2026-03-14", "note": "Checked against the sheet"},
+        json={
+            "parameters": rows,
+            "collected_on": "2026-03-14",
+            "note": "Checked against the sheet",
+        },
     )
     assert confirmed.status_code == 200, confirmed.text
     body = confirmed.json()
@@ -503,7 +505,9 @@ def test_confirmed_reports_returns_this_owners_confirmed_rows_newest_first(clien
     other_rows = client.get(f"{REPORTS}/{other_report['id']}", headers=other).json()["parameters"]
     assert (
         client.post(
-            f"{REPORTS}/{other_report['id']}/confirm", headers=other, json={"parameters": other_rows}
+            f"{REPORTS}/{other_report['id']}/confirm",
+            headers=other,
+            json={"parameters": other_rows},
         ).status_code
         == 200
     )

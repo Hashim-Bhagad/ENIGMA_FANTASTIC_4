@@ -591,6 +591,21 @@ def _lab_evidence(report: dict, parameter: dict) -> dict:
     }
 
 
+def _trigger_matches(trigger: dict, parameter: dict, sex: str) -> tuple[bool, str | None]:
+    """Resolve one lab trigger to a concrete comparison.
+
+    ``below_ref`` reads the sex-aware low-reference table, so a haemoglobin of 11.5 g/dL
+    fires for a female profile (low 12.0) and not for a value at or above the threshold;
+    when sex is unspecified the widened low bound is used and the note says so.
+    """
+    if trigger["op"] == "below_ref":
+        threshold, note = low_reference(trigger["key"], sex)
+        if threshold is None:
+            return False, None
+        return compare("<", float(parameter["value"]), float(threshold)), note
+    return compare(trigger["op"], float(parameter["value"]), float(trigger["value"])), None
+
+
 def _matched_labs(rule: dict, confirmed_params, sex: str) -> list[tuple[dict, dict, str | None]]:
     """Every (report, parameter, widened-note) that satisfies one lab trigger of the rule."""
     matches = []
@@ -599,14 +614,8 @@ def _matched_labs(rule: dict, confirmed_params, sex: str) -> list[tuple[dict, di
         for report, parameter in confirmed_params:
             if parameter.get("key") != key or parameter.get("value") is None:
                 continue
-            note = None
-            if trigger["op"] == "below_ref":
-                threshold, note = low_reference(key, sex)
-                if threshold is None:
-                    continue
-            else:
-                threshold = trigger["value"]
-            if compare(trigger["op"], float(parameter["value"]), float(threshold)):
+            matched, note = _trigger_matches(trigger, parameter, sex)
+            if matched:
                 matches.append((report, parameter, note))
     return matches
 
@@ -630,11 +639,15 @@ def _suggested_source(rule: dict, lab_evidence, condition_labels) -> str:
 
 def _build_target(nutrient, merged_rules, baseline_value, baseline_notes, evidence) -> dict:
     meta = NUTRIENT_META[nutrient]
-    clinician = [rule for rule in merged_rules if rule["requires_clinician"]]
+    # Only a rule whose confidence is ``clinician_only`` suppresses the number: those are the
+    # nutrients a clinician must set (CKD potassium/phosphorus/protein, hyperkalaemia,
+    # hyperphosphataemia). ``requires_clinician`` alone is a flag on a real proposal — a
+    # diabetes sugar ceiling still shows its value and asks for clinician confirmation.
+    clinician_only = [rule for rule in merged_rules if rule["confidence"] == "clinician_only"]
     numeric = [rule for rule in merged_rules if rule["proposed_value"] is not None]
     directions = {rule["direction"] for rule in merged_rules}
-    if clinician:
-        winning = clinician[0]
+    if clinician_only:
+        winning = clinician_only[0]
         proposed = None
         requires_clinician = True
         confidence = "clinician_only"
@@ -645,7 +658,7 @@ def _build_target(nutrient, merged_rules, baseline_value, baseline_notes, eviden
         else:
             winning = min(numeric, key=lambda r: r["proposed_value"])
         proposed = winning["proposed_value"]
-        requires_clinician = False
+        requires_clinician = any(rule["requires_clinician"] for rule in merged_rules)
         confidence = winning["confidence"]
     else:
         winning = merged_rules[0]
@@ -732,7 +745,9 @@ def build_plan(profile: ProfileData, reports) -> dict:
     fired: dict[str, dict] = {}
     fired_evidence: dict[str, list[dict]] = {}
     for rule in RULES:
-        matched_condition_slugs = [slug for slug in rule["conditions"] if slug in condition_evidence]
+        matched_condition_slugs = [
+            slug for slug in rule["conditions"] if slug in condition_evidence
+        ]
         lab_matches = _matched_labs(rule, confirmed_params, profile.sex)
         if not matched_condition_slugs and not lab_matches:
             continue
@@ -748,7 +763,9 @@ def build_plan(profile: ProfileData, reports) -> dict:
                 item["detail"] = f"{item['detail']} · {note}"
             evidence.append(item)
         bucket = fired_evidence.setdefault(nutrient, [])
-        existing_keys = {(e["kind"], e["label"], e.get("report_id"), e.get("value")) for e in bucket}
+        existing_keys = {
+            (e["kind"], e["label"], e.get("report_id"), e.get("value")) for e in bucket
+        }
         for item in evidence:
             key = (item["kind"], item["label"], item.get("report_id"), item.get("value"))
             if key not in existing_keys:
@@ -795,9 +812,7 @@ def build_plan(profile: ProfileData, reports) -> dict:
         "conditions": plans,
         "unrecognised_conditions": unrecognised,
         "reports_used": list(
-            dict.fromkeys(
-                report.get("id") for report, _ in confirmed_params if report.get("id")
-            )
+            dict.fromkeys(report.get("id") for report, _ in confirmed_params if report.get("id"))
         ),
         "notes": notes,
         "coverage": (

@@ -230,7 +230,6 @@ def import_demo(session: Session, path: Path):
     }
 
 
-
 def import_demo_recipes(session: Session, path: Path):
     """Load the synthetic, clearly marked recipe templates used for the demo flow.
 
@@ -242,7 +241,13 @@ def import_demo_recipes(session: Session, path: Path):
         raise ValueError("Demo recipes must be a list of 1 to 50 records")
     imported = 0
     for record in records:
-        if not isinstance(record, dict) or set(record) != {"id", "name", "raw", "source", "review_status"}:
+        if not isinstance(record, dict) or set(record) != {
+            "id",
+            "name",
+            "raw",
+            "source",
+            "review_status",
+        }:
             raise ValueError("Each demo recipe needs id, name, raw, source and review_status")
         if record["review_status"] != "validated":
             raise ValueError("Demo recipes must be marked validated")
@@ -319,7 +324,10 @@ def main():
     demo = sub.add_parser("demo")
     demo.add_argument("--file", type=Path, default=Path("data/demo_products.json"))
     demo.add_argument(
-        "--recipes", type=Path, default=Path("data/demo_recipes.json"), help="synthetic recipe templates"
+        "--recipes",
+        type=Path,
+        default=Path("data/demo_recipes.json"),
+        help="synthetic recipe templates",
     )
     reviewed = sub.add_parser("reviewed-products")
     reviewed.add_argument("--file", type=Path, required=True)
