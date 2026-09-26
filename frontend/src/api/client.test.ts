@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   allergenLabel, ApiError, attachReferenceToRows, avoidSeverityLabel, avoidSeverityTone, confidenceLabel,
-  DISH_DRAFT_ACTION, DISH_DRAFT_BANNER, dishStatusExplanation, draftIngredientRows, estimateCoverageLine, EU_ALLERGENS,
+  DISH_DRAFT_ACTION, DISH_DRAFT_BANNER, dishAlternativeViews, dishAssessmentPayload, dishReviewReason, dishStatusExplanation,
+  dishVerdictChip, draftIngredientRows, EU_ALLERGENS, INGREDIENT_WORDING_NOTE, NO_AMOUNT_ESTIMATE_NOTE, NO_CONCERN_NOT_CLEARANCE,
   evidenceReportLabel, formatEquivalent, formatEvidence,
   formatMeasuredLine, formatReferenceRange, ingredientRowKeyFor, intakeBaselineLine, intakeProposedLine, isNutrient,
   isUsableBarcode, labelExtractionMessage, labelFallbackOffer, manualProduct,
-  parameterStatusTone, PARTIAL_ESTIMATE_FLOOR_NOTE, referenceSuggestionLabel, TYPE_AHEAD_DELAY_MS,
-  TYPE_AHEAD_MIN_CHARS, typeAheadTerm, type DishDraftResponse, type IntakeTarget, type Product,
+  parameterStatusTone, referenceSuggestionLabel, TYPE_AHEAD_DELAY_MS,
+  TYPE_AHEAD_MIN_CHARS, typeAheadTerm, type DishAlternatives, type DishDraftResponse, type IntakeTarget, type Product,
 } from './client';
 
 // The client and the session module import native modules; stubbing them keeps the
@@ -376,6 +377,56 @@ describe('api client label extraction contract', () => {
   });
 });
 
+describe('api client barcode scan contract', () => {
+  // Re-imported after vi.resetModules() like the label cases: the client captures its base
+  // URL at module load, and the specifier stays a literal for the bundler. This file runs as
+  // the browser, where the photo arrives as the base64 payload the picker read.
+  beforeEach(() => { vi.resetModules(); delete process.env.EXPO_PUBLIC_API_URL; });
+  afterEach(() => { vi.unstubAllGlobals(); vi.resetModules(); });
+
+  const scanResponse = { barcode: '8901234567890', format: 'EAN-13', alternatives: [], message: 'Barcode read from the image; look it up to see the product record.' };
+
+  it('uploads the picked photo to the scan route without a JSON content type', async () => {
+    const { fetchMock, calls } = uploadFetch({ ok: true, status: 200, json: async () => scanResponse });
+    vi.stubGlobal('fetch', fetchMock);
+    const { api } = await import('./client');
+    const result = await api.scanBarcode('token', { uri: 'blob:http://localhost/abc', name: 'IMG_0042.HEIC', mimeType: 'image/heic', base64: btoa('fake-jpeg-bytes') });
+    const { url, init, headers } = lastCall(calls);
+    expect(url).toBe('http://localhost:8000/api/barcodes/scan');
+    expect(init.method).toBe('POST');
+    expect(headers.Authorization).toBe('Bearer token');
+    // The runtime must set the multipart boundary itself.
+    expect(headers['Content-Type']).toBeUndefined();
+    const form = init.body as FormData;
+    const file = form.get('file') as File;
+    expect(file.name).toBe('IMG_0042.HEIC');
+    expect(file.type).toBe('image/heic');
+    // Only the image travels: the decode has no barcode or name field to fill.
+    expect(form.get('barcode')).toBeNull();
+    expect(form.get('name')).toBeNull();
+    expect(result).toMatchObject({ barcode: '8901234567890', format: 'EAN-13' });
+  });
+
+  it('keeps the reason a photo could not be read verbatim', async () => {
+    const detail = 'No barcode found in that image. Get closer, use more light, or type the digits.';
+    const { fetchMock } = uploadFetch({ ok: false, status: 422, json: async () => ({ detail, code: 'validation_error' }) });
+    vi.stubGlobal('fetch', fetchMock);
+    const { api, ApiError } = await import('./client');
+    const failure = await api.scanBarcode('token', { uri: 'blob:http://localhost/abc', name: 'IMG_0042.HEIC', mimeType: 'image/heic' }).catch((cause: unknown) => cause);
+    expect(failure).toBeInstanceOf(ApiError);
+    expect(failure).toMatchObject({ status: 422, code: 'validation_error', message: detail });
+  });
+
+  it('keeps the size the scan route refuses verbatim', async () => {
+    const detail = 'Image is 9.1 MB; the limit is 8 MB. Retake it at a lower resolution.';
+    const { fetchMock } = uploadFetch({ ok: false, status: 413, json: async () => ({ detail, code: 'payload_too_large' }) });
+    vi.stubGlobal('fetch', fetchMock);
+    const { api } = await import('./client');
+    const failure = await api.scanBarcode('token', { uri: 'blob:http://localhost/abc', name: 'IMG_0042.HEIC', mimeType: 'image/heic' }).catch((cause: unknown) => cause);
+    expect(failure).toMatchObject({ status: 413, code: 'payload_too_large', message: detail });
+  });
+});
+
 describe('api client dish draft contract', () => {
   // Each case re-imports the client after vi.resetModules(), as above, because it captures
   // its base URL at module load; the specifier stays a literal for the bundler.
@@ -413,6 +464,54 @@ describe('api client dish draft contract', () => {
     expect(failure).toBeInstanceOf(ApiError);
     expect(failure).toMatchObject({ status: 503, code: 'provider_unavailable', message: detail });
     expect((failure as Error).message).toMatch(/type the ingredients yourself/);
+  });
+});
+
+describe('api client dish assess contract', () => {
+  beforeEach(() => { vi.resetModules(); delete process.env.EXPO_PUBLIC_API_URL; });
+  afterEach(() => { vi.unstubAllGlobals(); vi.resetModules(); });
+
+  it('posts the listed ingredients only, with no gram or portion field', async () => {
+    const fetchMock = vi.fn(async (_url: string, _init: FetchInit) => ({ ok: true, status: 201, json: async () => ({ id: 'd-1', dish: { name: 'Poha', matches: [], unmatched: [], estimate: { available: false, basis: null, nutrients: {}, total_grams: null, assumptions: [], matched_count: 0, matched_grams: null, excluded: [], coverage_note: '' } }, assessment: {} }) }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { api, dishAssessmentPayload } = await import('./client');
+    // The draft still carries the old amount and portion keys, as a stale screen would: neither
+    // may reach the backend, because this check judges the wording that was listed.
+    const legacyDraft = {
+      name: '  Poha  ',
+      ingredients: [
+        { key: 'a', text: 'Poha', referenceCode: 'IFCT-9', grams: '200' },
+        { key: 'b', text: '   ', referenceCode: null, grams: '50' },
+      ],
+      cookingNotes: ['pan_fried'],
+      declarationsConfirmed: true,
+      portion: '300',
+    };
+    const payload = dishAssessmentPayload(
+      { id: 'p-1', version: 4, data: { conditions: [], allergies: [], ingredient_exclusions: [], limits: [], goals: [], preferences: '' } },
+      legacyDraft,
+    );
+    expect(payload).toEqual({
+      profile_id: 'p-1', profile_version: 4, name: 'Poha',
+      ingredients: [{ text: 'Poha', reference_code: 'IFCT-9' }],
+      cooking_notes: ['pan_fried'], declarations_confirmed: true,
+    });
+    expect(Object.keys(payload)).not.toContain('portion_g');
+    await api.assessDish('token', payload);
+    const { url, init, headers } = lastCall(fetchMock.mock.calls.map(call => ({ url: call[0], init: call[1] })));
+    expect(url).toBe('http://localhost:8000/api/dishes/assess');
+    expect(init.method).toBe('POST');
+    expect(headers.Authorization).toBe('Bearer token');
+    const body = init.body as string;
+    expect(body).not.toMatch(/grams|portion/);
+    expect(JSON.parse(body)).toEqual(payload);
+  });
+
+  it('refuses a check with no name or no ingredient, as the screen always did', async () => {
+    const { dishAssessmentPayload } = await import('./client');
+    const profile = { id: 'p-1', version: 1, data: { conditions: [], allergies: [], ingredient_exclusions: [], limits: [], goals: [], preferences: '' } };
+    expect(() => dishAssessmentPayload(profile, { name: '  ', ingredients: [{ text: 'Poha', referenceCode: null }], cookingNotes: [], declarationsConfirmed: false })).toThrow(/dish name/i);
+    expect(() => dishAssessmentPayload(profile, { name: 'Poha', ingredients: [{ text: '   ', referenceCode: null }], cookingNotes: [], declarationsConfirmed: false })).toThrow(/at least one ingredient/i);
   });
 });
 
@@ -498,17 +597,56 @@ describe('meal-check and report display helpers', () => {
     expect(isNutrient('vitamin_d_ug')).toBe(false);
   });
 
-  it('reads a partial estimate as coverage of the weighed ingredients', () => {
-    const estimate = { available: true, basis: '100g', nutrients: {}, total_grams: 200, assumptions: [], matched_count: 2, matched_grams: 200, excluded: [], coverage_note: '' };
-    expect(estimateCoverageLine(estimate)).toBe('Estimated from 2 weighed ingredients · 200 g counted');
-    expect(estimateCoverageLine({ ...estimate, matched_count: 1 })).toBe('Estimated from 1 weighed ingredient · 200 g counted');
-    expect(estimateCoverageLine({ ...estimate, matched_grams: null })).toBe('Estimated from 2 weighed ingredients');
-    expect(estimateCoverageLine({ ...estimate, available: false })).toMatch(/^No nutrient estimate/);
+  it('shows a wording check with no per-100g estimate and says why', () => {
+    expect(NO_AMOUNT_ESTIMATE_NOTE).toBe('Amounts are not collected here, so no per-100 g estimate is shown; the checks above are based on the ingredients you listed.');
+    expect(INGREDIENT_WORDING_NOTE).toMatch(/wording alone/i);
+    expect(INGREDIENT_WORDING_NOTE).toMatch(/no amount is collected/i);
   });
 
-  it('states that a partial estimate is a floor, never the whole dish', () => {
-    expect(PARTIAL_ESTIMATE_FLOOR_NOTE).toMatch(/floor/i);
-    expect(PARTIAL_ESTIMATE_FLOOR_NOTE).toMatch(/understated/i);
+  it('gives every wording verdict its own chip, and never turns a silence into a clearance', () => {
+    const chips = (['avoid', 'limit', 'no_concern_found', 'cannot_determine'] as const).map(dishVerdictChip);
+    expect(chips.map(chip => chip.label)).toEqual(['AVOID', 'LIMIT', 'NO CONCERN IN THIS WORDING', 'COULD NOT JUDGE']);
+    expect(new Set(chips.map(chip => chip.label)).size).toBe(4);
+    expect(new Set(chips.map(chip => chip.tone)).size).toBe(4);
+    expect(chips.map(chip => chip.tone)).toEqual(['red', 'amber', 'blue', 'neutral']);
+    // "Found nothing" is a statement about the wording, never about safety.
+    expect(chips[2]?.label).not.toMatch(/safe|clearance|cleared/i);
+    expect(chips[2]?.label).toMatch(/concern/i);
+    expect(NO_CONCERN_NOT_CLEARANCE).toMatch(/not a clearance/i);
+  });
+
+  it('states the reason a wording was flagged and the restriction behind it', () => {
+    expect(dishReviewReason({ input_text: 'Masala', verdict: 'avoid', reason: ' Usually contains dairy.', matched_restriction: 'milk', confidence: 'medium' }))
+      .toBe('Usually contains dairy. Relates to your recorded restriction: milk.');
+    expect(dishReviewReason({ input_text: 'Masala', verdict: 'avoid', reason: null, matched_restriction: null, confidence: null }))
+      .toBe('The review gave no reason for this line.');
+  });
+
+  it('labels each swap card by its source and keeps its note visible', () => {
+    const block: DishAlternatives = {
+      version: 'dish-alternatives-2026-09-26.1',
+      entries: [
+        {
+          input_text: 'Butter', reason: 'Flagged against milk', source: 'catalogue',
+          options: [{ text: 'olive oil', why: 'Fat for cooking, dairy-free.', conflicts: [] }],
+        },
+        {
+          // Every suggested swap clashed with a recorded restriction, so only the note is left.
+          input_text: 'Paneer', reason: 'Flagged against milk', source: 'model', resolved_to: 'Cheese, processed',
+          options: [], note: 'No swap passed your recorded restrictions. Omit the ingredient or ask the cook to confirm a replacement.',
+        },
+      ],
+      notes: ['Swaps are cooking ideas, not allergy-safety confirmation.'],
+    };
+    const views = dishAlternativeViews(block);
+    expect(views.map(view => view.sourceLabel)).toEqual(['Reviewed swap', 'Model suggestion']);
+    expect(views[0]?.options).toEqual([{ text: 'olive oil', why: 'Fat for cooking, dairy-free.', conflicts: [] }]);
+    expect(views[0]?.note).toBeNull();
+    // An entry with no options still renders its note: a removed conflicting swap must stay visible.
+    expect(views[1]?.options).toEqual([]);
+    expect(views[1]?.note).toBe('No swap passed your recorded restrictions. Omit the ingredient or ask the cook to confirm a replacement.');
+    expect(views[1]?.resolved_to).toBe('Cheese, processed');
+    expect(dishAlternativeViews(null)).toEqual([]);
   });
 
   it('finds the ingredient row a result row came from', () => {
@@ -520,11 +658,11 @@ describe('meal-check and report display helpers', () => {
 
   it('attaches a chosen reference to that row only, leaving the rest untouched', () => {
     const rows = [
-      { key: 'a', text: 'Salt', referenceCode: null as string | null, grams: '' },
-      { key: 'b', text: 'Paneer', referenceCode: null as string | null, grams: '100' },
+      { key: 'a', text: 'Salt', referenceCode: null as string | null },
+      { key: 'b', text: 'Paneer', referenceCode: null as string | null },
     ];
     const attached = attachReferenceToRows(rows, '  paneer ', 'IFCT-9');
-    expect(attached[1]).toMatchObject({ key: 'b', referenceCode: 'IFCT-9', grams: '100' });
+    expect(attached[1]).toMatchObject({ key: 'b', referenceCode: 'IFCT-9' });
     expect(attached[0]).toBe(rows[0]);
     expect(attached).toHaveLength(2);
     // Ids are attached by wording, so an unknown wording changes nothing.
@@ -553,7 +691,7 @@ describe('meal-check and report display helpers', () => {
     expect(avoidSeverityTone('ask')).toBe('blue');
   });
 
-  it('fills editable rows from a model draft without attaching any reference', () => {
+  it('fills editable rows from a model draft without attaching a reference or an amount', () => {
     const draft: DishDraftResponse = {
       name: 'Fried rice',
       ingredients: [{ text: 'Cooked rice', grams: 600 }, { text: 'Soy sauce', grams: null }],
@@ -563,9 +701,10 @@ describe('meal-check and report display helpers', () => {
       message: 'A model wrote this starting list from the dish name.',
     };
     const rows = draftIngredientRows(draft, 'draft-7');
+    // The amount the model guessed is dropped: this check collects no amounts.
     expect(rows).toEqual([
-      { key: 'draft-7-1', text: 'Cooked rice', referenceCode: null, grams: '600' },
-      { key: 'draft-7-2', text: 'Soy sauce', referenceCode: null, grams: '' },
+      { key: 'draft-7-1', text: 'Cooked rice', referenceCode: null },
+      { key: 'draft-7-2', text: 'Soy sauce', referenceCode: null },
     ]);
     // One prefix per draft keeps the row ids unique against rows already on screen.
     expect(draftIngredientRows(draft, 'draft-8').map(row => row.key)).toEqual(['draft-8-1', 'draft-8-2']);

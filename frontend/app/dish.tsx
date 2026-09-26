@@ -3,17 +3,16 @@ import { Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-nat
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Button, Card, Field, PageHeader, Pill, Screen, SectionTitle } from '@/src/components/ui';
 import { FindingsList, findingCount, statusTone } from '@/src/components/findings';
-import { api, attachReferenceToRows, dishStatusExplanation, estimateCoverageLine, ingredientRowKeyFor, PARTIAL_ESTIMATE_FLOOR_NOTE, REFERENCE_MATCH_NOTE, referenceSuggestionLabel, TYPE_AHEAD_DELAY_MS, typeAheadTerm, type DishOptions, type IngredientAlternatives, type Recipe, type ReferenceFood, DISH_DRAFT_ACTION, DISH_DRAFT_BANNER, draftIngredientRows, type DishDraftResponse } from '@/src/api/client';
+import { api, attachReferenceToRows, dishStatusExplanation, dishAlternativeViews, dishReviewReason, dishVerdictChip, INGREDIENT_WORDING_NOTE, NO_AMOUNT_ESTIMATE_NOTE, NO_CONCERN_NOT_CLEARANCE, REFERENCE_MATCH_NOTE, referenceSuggestionLabel, TYPE_AHEAD_DELAY_MS, typeAheadTerm, type DishOptions, type IngredientAlternatives, type Recipe, type ReferenceFood, DISH_DRAFT_ACTION, DISH_DRAFT_BANNER, draftIngredientRows, type DishDraftResponse } from '@/src/api/client';
 import { useApp, type DishDraft, type DishIngredientDraft } from '@/src/state/AppContext';
-import { nutrientFields } from '@/src/data/nutrients';
 import { colors, radius, typography } from '@/src/theme';
 
 /** Suggestions shown under one field; the backend already ranked them most-relevant first. */
 const SUGGESTION_LIMIT = 6;
-const HOW_THIS_WORKS = 'Ingredients you type → amounts in grams where you know them → how it is prepared → the result, which lists matches, unmatched ingredients, an estimate when the numbers allow, and anything that conflicts with your saved restrictions.';
+const HOW_THIS_WORKS = 'Ingredients you type → how it is prepared → the result, which lists matches, unmatched ingredients, a wording review of the lines no reference resolved, and anything that conflicts with your saved restrictions, with screened swaps for the flagged lines.';
 
 let nextRow = 1;
-const ingredientRow = (text = ''): DishIngredientDraft => ({ key: `ingredient-${Date.now()}-${nextRow++}`, text, referenceCode: null, grams: '' });
+const ingredientRow = (text = ''): DishIngredientDraft => ({ key: `ingredient-${Date.now()}-${nextRow++}`, text, referenceCode: null });
 
 /** Text that only settles after a pause, so a type-ahead asks the server once the typist stops. */
 function useDebouncedValue<T>(value: T, delay: number): T {
@@ -28,8 +27,8 @@ function useDebouncedValue<T>(value: T, delay: number): T {
 /** Everything that changes what a meal check means; compared against the checked draft. */
 function draftSignature(draft: DishDraft): string {
   return JSON.stringify({
-    name: draft.name.trim(), portion: draft.portion.trim(), confirmed: draft.declarationsConfirmed,
-    notes: [...draft.cookingNotes].sort(), ingredients: draft.ingredients.map(row => [row.text.trim(), row.referenceCode, row.grams.trim()]),
+    name: draft.name.trim(), confirmed: draft.declarationsConfirmed,
+    notes: [...draft.cookingNotes].sort(), ingredients: draft.ingredients.map(row => [row.text.trim(), row.referenceCode]),
   });
 }
 
@@ -93,9 +92,6 @@ function IngredientRow({ index, row, token, removable, onChange, onRemove }: {
         />
       </View>
       {removable ? <Pressable accessibilityRole="button" accessibilityLabel={`Remove ingredient ${index + 1}`} onPress={onRemove} style={st.iconButton}><MaterialCommunityIcons name="close" size={22} color={colors.muted} /></Pressable> : null}
-    </View>
-    <View style={st.row}>
-      <View style={{ flex: 1 }}><Field label="Amount in recipe (g, optional)" value={row.grams} onChangeText={grams => onChange({ grams })} placeholder="Leave blank if unknown" keyboardType="numeric" /></View>
     </View>
     {row.referenceCode ? <View style={st.selected}><Pill label={`Reference: ${row.referenceCode}`} tone="blue" /><Pressable accessibilityRole="button" accessibilityLabel="Clear the selected reference" onPress={() => onChange({ referenceCode: null })}><Text style={st.link}>Clear</Text></Pressable></View> : null}
   </Card>;
@@ -201,8 +197,8 @@ export default function DishScreen() {
 
   /**
    * Ask the model for a starting ingredient list and put it in the editable rows. Rows a previous
-   * draft put there are replaced; wording the user typed themselves is kept, so a weight or a
-   * chosen reference is never thrown away on the way in. The meal name and the returned preparation
+   * draft put there are replaced; wording the user typed themselves is kept, so a chosen reference
+   * is never thrown away on the way in. The meal name and the returned preparation
    * notes are filled in and the confirmation is withdrawn. No check runs: the user corrects the
    * lines and presses the check button themselves.
    */
@@ -232,7 +228,7 @@ export default function DishScreen() {
 
   const updateRow = (key: string, changes: Partial<DishIngredientDraft>) => {
     // Editing the wording changes the list, so the earlier confirmation no longer covers it.
-    // Choosing a reference or recording a weight leaves the confirmed list intact.
+    // Choosing a reference leaves the confirmed list intact.
     const wordingChanged = 'text' in changes;
     setDishDraft({
       ...dishDraft,
@@ -243,8 +239,9 @@ export default function DishScreen() {
   const selectRecipe = (item: Recipe) => {
     setRecipe(item);
     // A reviewed template replaces the rows, so a draft label no longer describes them either way.
+    // Any weight the template states is dropped: this check collects no amounts.
     setDraft(null);
-    setDishDraft({ ...dishDraft, name: item.name, ingredients: item.ingredients.map(ingredient => ({ ...ingredientRow(ingredient.text), referenceCode: ingredient.reference_code || null, grams: ingredient.grams == null ? '' : String(ingredient.grams) })), declarationsConfirmed: false });
+    setDishDraft({ ...dishDraft, name: item.name, ingredients: item.ingredients.map(ingredient => ({ ...ingredientRow(ingredient.text), referenceCode: ingredient.reference_code || null })), declarationsConfirmed: false });
   };
   /** Run the check on one concrete draft so the result always describes the list on screen. */
   const runCheck = async (draft: DishDraft) => {
@@ -260,11 +257,6 @@ export default function DishScreen() {
     setDishDraft(nextDraft);
     await runCheck(nextDraft);
   };
-  /** Record a weight for an already matched ingredient; the user then re-runs the check. */
-  const setGramWeight = (inputText: string, grams: string) => {
-    const key = ingredientRowKeyFor(dishDraft.ingredients, inputText);
-    if (key) updateRow(key, { grams });
-  };
   const chooseMode = (value: 'home' | 'restaurant') => {
     setMode(value);
     setDishDraft({ ...dishDraft, declarationsConfirmed: false, cookingNotes: [...dishDraft.cookingNotes.filter(note => note !== 'restaurant_prepared'), ...(value === 'restaurant' ? ['restaurant_prepared'] : [])] });
@@ -273,8 +265,9 @@ export default function DishScreen() {
   const typedIngredients = dishDraft.ingredients.filter(row => row.text.trim()).length;
   const resultOutOfDate = Boolean(dishResult && checked && checked.signature !== draftSignature(dishDraft));
   const resultConfirmable = Boolean(dishResult && checked);
-  const unmatchedWeights = dishResult ? dishResult.dish.matches.filter(match => match.grams == null) : [];
   const nothingMatched = Boolean(dishResult && !dishResult.dish.matches.length);
+  const modelReview = dishResult?.dish.model_review;
+  const alternativeViews = dishAlternativeViews(dishResult?.dish.alternatives);
 
   return <Screen>
     <PageHeader title="What goes into your meal?" subtitle="Start from a recipe or enter ingredients. Make the check reflect the food you plan to eat." back />
@@ -293,6 +286,7 @@ export default function DishScreen() {
     {recipe ? <Card style={{ gap: 8 }}><Pill label="Recipe template selected" tone="blue" /><Text style={st.title}>{recipe.name}</Text>{recipe.warnings.map((warning, index) => <Text key={index} style={st.copy}>{warning}</Text>)}{typeof recipe.source.reference === 'string' && /^https?:\/\//.test(recipe.source.reference) ? <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(String(recipe.source.reference))} style={st.iconButton}><Text style={st.link}>Open recipe source ↗</Text></Pressable> : null}</Card> : null}
 
     <SectionTitle title="Your actual ingredients" action={`${dishDraft.ingredients.length}/40`} />
+    <Text style={st.meta}>{INGREDIENT_WORDING_NOTE}</Text>
     <Field label="Meal name" value={dishDraft.name} onChangeText={name => setDishDraft({ ...dishDraft, name })} placeholder="e.g. My paneer curry" />
     {!typedIngredients && !recipe ? <Card style={st.empty}><MaterialCommunityIcons name="silverware-variant" size={26} color={colors.subtle} /><Text style={st.title}>Nothing typed yet</Text><Text style={st.copy}>Add the first ingredient below, or start from a recipe template above. Suggestions appear under the field as you type; nothing is checked until you press the button at the bottom.</Text><Text style={st.meta}>{HOW_THIS_WORKS}</Text></Card> : null}
     {dishDraft.ingredients.map((row, index) => <IngredientRow key={row.key} index={index} row={row} token={token} removable={dishDraft.ingredients.length > 1} onChange={changes => updateRow(row.key, changes)} onRemove={() => setDishDraft({ ...dishDraft, declarationsConfirmed: false, ingredients: dishDraft.ingredients.filter(item => item.key !== row.key) })} />)}
@@ -313,7 +307,6 @@ export default function DishScreen() {
       <Text style={st.confirmState}>{dishDraft.declarationsConfirmed ? 'Confirmed. The checks can reach a conclusion about the declarations you listed.' : 'Not confirmed. With this unticked, missing or incomplete declarations stay unknown and the checks stay inconclusive.'}</Text>
       <Text style={st.meta}>Ingredient confirmation does not confirm shared-equipment or cross-contact details. Those remain questions for the cook.</Text>
     </Card>
-    <Field label="Your serving (g, optional)" value={dishDraft.portion} onChangeText={portion => setDishDraft({ ...dishDraft, portion })} placeholder="Leave blank if unknown" keyboardType="numeric" />
 
     {message || error ? <Text accessibilityRole="alert" style={st.error}>{message || error}</Text> : null}
     <Button title={mode === 'home' ? 'Check ingredients before cooking' : 'Find concerns & questions to ask'} icon="arrow-right" loading={busyFor('dish')} disabled={!profile || !dishDraft.name.trim() || !typedIngredients} onPress={() => void runCheck(dishDraft)} />
@@ -328,38 +321,46 @@ export default function DishScreen() {
         {resultConfirmable ? <Text style={st.meta}>{checked?.declarationsConfirmed ? 'You confirmed the cook listed the full ingredient list, so these checks treat the declarations as complete.' : 'The ingredient list was not confirmed as complete, so anything unlisted stays unknown and the checks remain inconclusive.'}</Text> : null}
         {dishResult.dish.matches.length ? <View style={st.block}>
           <Text style={st.blockTitle}>Matched to a reference ({dishResult.dish.matches.length})</Text>
-          {dishResult.dish.matches.map(match => <Text key={`${match.input_text}-${match.code}`} selectable style={st.meta}>{match.input_text} → {match.name} ({match.code}){match.grams == null ? ', amount unknown' : `, ${match.grams} g`} · matched by {match.matched_by}</Text>)}
-          {unmatchedWeights.length ? <View style={st.amounts}>
-            <Text style={st.meta}>Matched but not weighed, so still left out of the estimate. Add the amount used:</Text>
-            {unmatchedWeights.map(match => <View key={`grams-${match.input_text}`} style={st.amountRow}>
-              <Text style={st.amountLabel}>{match.input_text}</Text>
-              <TextInput accessibilityLabel={`Amount in grams for ${match.input_text}`} value={(dishDraft.ingredients.find(row => row.text.trim().toLowerCase() === match.input_text.trim().toLowerCase())?.grams) ?? ''} onChangeText={grams => setGramWeight(match.input_text, grams)} keyboardType="numeric" placeholder="g" placeholderTextColor={colors.subtle} style={st.amountInput} />
-            </View>)}
-            <Text style={st.note}>Then run the check again to include {unmatchedWeights.length === 1 ? 'it' : 'them'}.</Text>
-          </View> : null}
+          {dishResult.dish.matches.map(match => <Text key={`${match.input_text}-${match.code}`} selectable style={st.meta}>{match.input_text} → {match.name} ({match.code}) · matched by {match.matched_by}{match.note ? ` · ${match.note}` : ''}</Text>)}
         </View> : null}
         <View style={st.block}>
           <Text style={st.blockTitle}>Not matched ({dishResult.dish.unmatched.length})</Text>
           <UnmatchedList items={dishResult.dish.unmatched} token={token} busy={busyFor('dish')} onAttach={attachReference} />
         </View>
+        {modelReview ? <View style={st.block}>
+          <Text style={st.blockTitle}>Wording review</Text>
+          <Text style={st.copy}>{modelReview.message}</Text>
+          {modelReview.status === 'applied' ? modelReview.verdicts.map((row, index) => {
+            const chip = dishVerdictChip(row.verdict);
+            return <View key={`verdict-${index}`} style={st.verdictRow}>
+              <View style={st.row}><Text style={st.amountLabel}>{row.input_text}</Text><Pill label={chip.label} tone={chip.tone} /></View>
+              <Text style={st.meta}>{dishReviewReason(row)}</Text>
+              {row.verdict === 'no_concern_found' ? <Text style={st.note}>{NO_CONCERN_NOT_CLEARANCE}</Text> : null}
+            </View>;
+          }) : null}
+          <Text style={st.meta}>{modelReview.disclaimer}</Text>
+        </View> : null}
         <View style={st.block}>
-          <Text style={st.blockTitle}>Estimate</Text>
-          <Text style={st.copy}>{estimateCoverageLine(dishResult.dish.estimate)}</Text>
-          {dishResult.dish.estimate.available
-            ? <>
-              {dishResult.dish.estimate.coverage_note ? <Text style={st.meta}>{dishResult.dish.estimate.coverage_note}</Text> : null}
-              {dishResult.dish.estimate.excluded.length ? <Text style={st.meta}>Left out of this estimate:</Text> : null}
-              {dishResult.dish.estimate.excluded.map(item => <Text key={`excluded-${item.input_text}`} selectable style={st.meta}>· {item.input_text}: {item.reason}</Text>)}
-              <Text style={st.floor}>{PARTIAL_ESTIMATE_FLOOR_NOTE}</Text>
-              <Text style={st.meta}>Estimated per 100 g of this meal{dishResult.dish.estimate.matched_grams == null ? '' : `, from the ${dishResult.dish.estimate.matched_grams} g counted`}:</Text>
-              {nutrientFields.filter(field => dishResult.dish.estimate.nutrients[field.key] != null).map(field => <Text key={field.key} style={st.meta}>{field.label}: {dishResult.dish.estimate.nutrients[field.key]} {field.unit}</Text>)}
-            </>
-            : <Text style={st.meta}>No ingredient is both matched to a reference and weighed in grams yet. Attach a reference to an unmatched ingredient and add the amounts, then run the check again. The ingredient-name checks still apply.</Text>}
+          <Text style={st.blockTitle}>Amounts and estimate</Text>
+          <Text style={st.copy}>{NO_AMOUNT_ESTIMATE_NOTE}</Text>
           {dishResult.dish.estimate.assumptions.map((assumption, index) => <Text key={`assumption-${index}`} style={st.meta}>· {assumption}</Text>)}
         </View>
       </Card>
-      {nothingMatched ? <Card style={st.notice}><MaterialCommunityIcons name="help-circle-outline" size={17} color={colors.amber} /><Text style={st.noticeText}>None of the typed ingredients matched a reference, so no nutrient estimate is possible yet. Attach one of the suggested references above, or reword the ingredient to a simpler name, then add the amounts and run the check again.</Text></Card> : null}
+      {nothingMatched ? <Card style={st.notice}><MaterialCommunityIcons name="help-circle-outline" size={17} color={colors.amber} /><Text style={st.noticeText}>None of the typed ingredients matched a reference. Attach one of the suggested references above, or reword the ingredient to a simpler name, then run the check again. The other checks still apply.</Text></Card> : null}
       <FindingsList result={dishResult.assessment} />
+      {dishResult.dish.alternatives ? <>
+        <SectionTitle title="Swaps screened against your restrictions" />
+        {alternativeViews.map(view => <Card key={view.input_text} style={{ gap: 8 }}>
+          <View style={st.row}><Text style={[st.title, { flex: 1 }]}>{view.input_text}</Text><Pill label={view.sourceLabel} tone={view.source === 'catalogue' ? 'blue' : 'amber'} /></View>
+          {view.resolved_to ? <Text style={st.meta}>Resolved to the reference {view.resolved_to} before swapping.</Text> : null}
+          <Text style={st.copy}>{view.reason}</Text>
+          {view.options.length
+            ? <View style={{ gap: 8 }}>{view.options.map(option => <View key={option.text} style={st.option}><Text style={st.optionText}>{option.text}</Text><Text style={st.meta}>{option.why}</Text></View>)}</View>
+            : <Text style={st.copy}>No swap is listed for this line.</Text>}
+          {view.note ? <Text style={st.floor}>{view.note}</Text> : null}
+        </Card>)}
+        {dishResult.dish.alternatives.notes.map((note, index) => <Text key={`alt-note-${index}`} style={st.meta}>{note}</Text>)}
+      </> : null}
       {ambiguousFinding ? <Card style={{ gap: 8, backgroundColor: colors.lavenderSoft }}><Text style={st.title}>Possible ingredient swaps</Text>{ingredientAlternatives?.alternatives.length ? ingredientAlternatives.alternatives.map((item, index) => <Text key={`${item.matched_ingredient}-${index}`} style={st.copy}>{item.matched_ingredient}: {item.alternatives.join(' or ')}. {item.reason}</Text>) : <Text style={st.copy}>{ingredientAlternatives ? 'No reviewed swap matches this ambiguous ingredient in the current catalog.' : 'Checking the ingredient swap catalog…'}</Text>}{ingredientAlternatives ? <Text style={st.meta}>{ingredientAlternatives.note}</Text> : null}</Card> : null}
       <Button title="Run this check again" icon="refresh" secondary loading={busyFor('dish')} onPress={() => void runCheck(dishDraft)} />
       <Button title="Clear this meal check" icon="close-circle-outline" secondary onPress={() => { clearDish(); setChecked(null); setMessage(''); setDraft(null); }} />
@@ -385,9 +386,10 @@ const st = StyleSheet.create({
   selected: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   empty: { alignItems: 'center', gap: 8, paddingVertical: 22 }, draftCard: { gap: 8, borderWidth: 2, borderColor: colors.amber },
   block: { gap: 4, borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 10 }, blockTitle: { ...typography.label, color: colors.muted },
-  unmatched: { gap: 4 }, amounts: { gap: 8, marginTop: 8, backgroundColor: colors.canvas, borderRadius: radius.chip, padding: 12 },
-  amountRow: { flexDirection: 'row', alignItems: 'center', gap: 10 }, amountLabel: { flex: 1, color: colors.ink, fontSize: 14, fontWeight: '700' },
-  amountInput: { width: 88, minHeight: 46, borderWidth: 1, borderColor: colors.stroke, borderRadius: radius.control, paddingHorizontal: 12, color: colors.ink, fontSize: 16, backgroundColor: colors.surface },
+  unmatched: { gap: 4 }, verdictRow: { gap: 4, marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: colors.line },
+  amountLabel: { flex: 1, color: colors.ink, fontSize: 14, fontWeight: '700' },
+  option: { gap: 2, padding: 10, borderRadius: radius.chip, backgroundColor: colors.canvas },
+  optionText: { color: colors.ink, fontSize: 15, lineHeight: 21, fontWeight: '700' },
   floor: { color: colors.amberInk, ...typography.meta, fontWeight: '700', marginTop: 6 },
   notice: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: colors.amberBg }, noticeText: { flex: 1, color: colors.amberInk, ...typography.meta, fontWeight: '700' },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, chip: { paddingHorizontal: 14, paddingVertical: 12, borderRadius: radius.control, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.stroke }, chipActive: { backgroundColor: colors.lavender, borderColor: colors.primary },

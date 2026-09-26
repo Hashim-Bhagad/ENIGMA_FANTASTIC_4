@@ -5,9 +5,29 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { Button, Card, Field, PageHeader, Pill, Screen, SectionTitle } from '@/src/components/ui';
-import { api, isUsableBarcode, labelExtractionMessage, labelFallbackOffer, manualProduct, type FssaiVerification, type LabelFallbackPrompt, type Product } from '@/src/api/client';
+import { api, isUsableBarcode, labelExtractionMessage, labelFallbackOffer, manualProduct, type FssaiVerification, type LabelFallbackPrompt, type Photo, type Product } from '@/src/api/client';
 import { useApp } from '@/src/state/AppContext';
 import { colors, radius, typography } from '@/src/theme';
+
+/**
+ * What both photo uploads send: the file the picker reported, its dimensions (which decide
+ * whether a native capture is shrunk before upload) and the web base64 payload read while the
+ * picker still held the file, so a revoked `blob:` URL cannot empty the upload. One definition
+ * on purpose — every upload must carry the same fields.
+ */
+function pickedPhoto(asset: ImagePicker.ImagePickerAsset): Photo {
+  return {
+    uri: asset.uri,
+    name: asset.fileName,
+    mimeType: asset.mimeType,
+    width: asset.width,
+    height: asset.height,
+    fileSize: asset.fileSize,
+    base64: asset.base64 ?? null,
+    // A web File is only worth sending when it holds bytes; without one the client reads the URI.
+    file: asset.file instanceof Blob && asset.file.size > 0 ? asset.file : null,
+  };
+}
 
 export default function ScanScreen() {
   const { product, products, setProduct, search, setSearch, setLabelPhoto, lookupBarcode, searchCatalog, extractLabel, busyFor, token, catalogMessage, loadCatalog } = useApp();
@@ -27,23 +47,25 @@ export default function ScanScreen() {
   const categories = ['All', ...new Set(products.map(item => item.category))];
   const visible = useMemo(() => products.filter(item => category === 'All' || item.category === category), [products, category]);
 
-  const select = (item: Product) => {
+  const select = (item: Product, note?: string) => {
     // A record the catalog did answer with but that declares no ingredients is as unusable as
-    // a missing one, so the photo path is offered for it too.
+    // a missing one, so the photo path is offered for it too. `note` keeps what the caller
+    // already learned (a barcode read from a photo) visible next to that offer.
     const offer = labelFallbackOffer({ barcode: item.barcode, query: search, found: item.observation ?? {} });
-    if (offer) { setMessage(''); setFallback(offer); return; }
+    if (offer) { setMessage(note ?? ''); setFallback(offer); return; }
     setProduct(item); setLabelPhoto(null); setSearch(''); setMessage(''); setFallback(null); router.push('/review');
   };
-  const lookup = async (value = barcode) => {
+  const lookup = async (value = barcode, note?: string) => {
     if (!value.trim()) { setMessage('Enter the barcode printed on the product.'); return; }
     setFallback(null);
-    try { select(await lookupBarcode(value)); }
+    try { select(await lookupBarcode(value), note); }
     catch (cause) {
       // A missing record is exactly what the ingredient-list photo can answer, so the
-      // screen offers it instead of leaving the user with a bare error.
+      // screen offers it instead of leaving the user with a bare error. `note` carries what
+      // the caller already learned (a barcode read from a photo) into that offer.
       const offer = labelFallbackOffer({ barcode: value, error: cause });
       setFallback(offer);
-      setMessage(offer ? '' : cause instanceof Error ? cause.message : 'Product lookup failed.');
+      setMessage(offer ? note ?? '' : cause instanceof Error ? cause.message : 'Product lookup failed.');
     }
   };
   const runSearch = async () => {
@@ -79,13 +101,15 @@ export default function ScanScreen() {
   const openCamera = async () => {
     scanned.current = false;
     if (Platform.OS === 'web') {
-      setMessage('Use barcode entry or product search in the browser. Camera scanning is available in the native app.');
+      // No in-app scanner in a browser, so the camera button reads the code from a photo
+      // on the server instead of pointing the user at a phone.
+      await addBarcodePhoto();
       return;
     }
     if (permission?.granted) { setCameraVisible(true); return; }
     const result = await requestPermission();
     if (result.granted) setCameraVisible(true);
-    else setMessage('Camera access is needed to scan. You can still enter the barcode or search the sample catalog.');
+    else setMessage('Camera access is needed to scan. You can still enter the barcode, photograph it, or search the sample catalog.');
   };
   const onBarcode = ({ data }: { data: string }) => {
     if (scanned.current) return;
@@ -93,6 +117,29 @@ export default function ScanScreen() {
     setCameraVisible(false);
     setBarcode(data);
     void lookup(data);
+  };
+  /** Read the code out of a photo, for the codes the camera window could not see. */
+  const addBarcodePhoto = async () => {
+    if (!token) { setMessage('Sign in before reading a barcode from a photo.'); return; }
+    try {
+      const result = Platform.OS === 'web'
+        // base64 is read while the picker still holds the file: its blob URL is revoked as
+        // soon as the dialog closes, and fetching that URL uploaded an empty file.
+        ? await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.85, base64: true })
+        : await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.85 });
+      if (result.canceled || !result.assets[0]) return;
+      setMessage('Reading the barcode from the photo…');
+      const asset = result.assets[0];
+      const scan = await api.scanBarcode(token, pickedPhoto(asset));
+      // The decoded digits take the normal lookup path, and the server's own line stays
+      // visible when that lookup finds no record to open.
+      setBarcode(scan.barcode);
+      await lookup(scan.barcode, scan.message);
+    } catch (cause) {
+      // Whatever went wrong — nothing readable in the photo, a code the server will not
+      // accept, no connection — the reason is the whole point of the message.
+      setMessage(cause instanceof Error ? cause.message : 'The barcode could not be read from that photo.');
+    }
   };
   const addLabelPhoto = async () => {
     // The barcode from the failed lookup travels with the photo, or, when the entered
@@ -109,23 +156,14 @@ export default function ScanScreen() {
       if (result.canceled || !result.assets[0]) return;
       setMessage('Reading the label…');
       const asset = result.assets[0];
-      const outcome = await extractLabel(
-        {
-          uri: asset.uri,
-          name: asset.fileName,
-          mimeType: asset.mimeType,
-          // Web: the base64 payload read at pick time, so a revoked blob: URL cannot empty
-          // the upload; a real File is used when the picker supplies one with content.
-          base64: asset.base64 ?? null,
-          file: (asset as { file?: Blob | null }).file ?? null,
-        },
-        { barcode: attached, name: search.trim() || null },
-      );
+      const outcome = await extractLabel(pickedPhoto(asset), { barcode: attached, name: search.trim() || null });
       setMessage(labelExtractionMessage(outcome, attached, unusable));
       setFallback(null);
       router.push('/review');
-    } catch {
-      setMessage('Label extraction failed. You can enter the package details manually.');
+    } catch (cause) {
+      // The size the server refuses, the reason it read the photo as unusable, and an
+      // unreachable backend are three different situations: say which one happened.
+      setMessage(cause instanceof Error ? cause.message : 'Label extraction failed. You can enter the package details manually.');
     }
   };
 
@@ -134,7 +172,8 @@ export default function ScanScreen() {
     <Button title="Check a cooked meal" icon="silverware-fork-knife" secondary onPress={() => router.push('/dish')} />
     <Card style={st.scanCard}>
       <View style={st.scanGraphic}><View style={st.scanFrame}><MaterialCommunityIcons name="barcode-scan" size={33} color={colors.primary} /></View><View style={st.scanText}><Text style={st.cardTitle}>Scan a barcode</Text><Text style={st.cardSub}>Look up a product in the available catalog.</Text></View></View>
-      {cameraVisible ? <View style={st.cameraShell}><CameraView style={st.camera} facing="back" barcodeScannerSettings={{ barcodeTypes: ['ean13', 'ean8', 'upc_a', 'upc_e'] }} onBarcodeScanned={onBarcode} /><View pointerEvents="none" style={st.scanOverlay}><View style={st.scanCorners} /></View><Pressable onPress={() => setCameraVisible(false)} style={st.cameraClose}><MaterialCommunityIcons name="close" color={colors.onPrimary} size={20} /></Pressable><Text style={st.cameraHint}>Line up the barcode inside the frame</Text></View> : <Pressable onPress={openCamera} style={st.cameraButton}><MaterialCommunityIcons name="camera-outline" size={17} color={colors.primary} /><Text style={st.cameraButtonText}>{Platform.OS === 'web' ? 'Use a phone to scan' : 'Open camera scanner'}</Text></Pressable>}
+      {cameraVisible ? <View style={st.cameraShell}><CameraView style={st.camera} facing="back" barcodeScannerSettings={{ barcodeTypes: ['ean13', 'ean8', 'upc_a', 'upc_e'] }} onBarcodeScanned={onBarcode} /><View pointerEvents="none" style={st.scanOverlay}><View style={st.scanCorners} /></View><Pressable onPress={() => setCameraVisible(false)} style={st.cameraClose}><MaterialCommunityIcons name="close" color={colors.onPrimary} size={20} /></Pressable><Text style={st.cameraHint}>Line up the barcode inside the frame</Text></View> : <Pressable accessibilityRole="button" accessibilityLabel="Upload a barcode photo and read the code from it" onPress={openCamera} style={st.cameraButton}><MaterialCommunityIcons name="camera-outline" size={17} color={colors.primary} /><Text style={st.cameraButtonText}>{Platform.OS === 'web' ? 'Upload a barcode photo' : 'Open camera scanner'}</Text></Pressable>}
+      {Platform.OS === 'web' ? null : <Pressable accessibilityRole="button" accessibilityLabel="Photograph the barcode and read the code from it" onPress={() => void addBarcodePhoto()} style={st.photoButton}><MaterialCommunityIcons name="image-search-outline" size={17} color={colors.primary} /><Text style={st.cameraButtonText}>Photograph the barcode</Text></Pressable>}
       <View style={st.inputWrap}><MaterialCommunityIcons name="barcode" size={20} color={colors.subtle} /><TextInput accessibilityLabel="Barcode number" value={barcode} onChangeText={setBarcode} keyboardType="numeric" placeholder="Enter barcode number" placeholderTextColor={colors.subtle} style={st.input} onSubmitEditing={() => void lookup()} returnKeyType="search" /><Pressable accessibilityRole="button" accessibilityLabel="Look up barcode" disabled={busy} onPress={() => void lookup()} style={st.searchAction}><MaterialCommunityIcons name={busy ? 'progress-clock' : 'arrow-right'} color={colors.onPrimary} size={20} /></Pressable></View>
       <Pressable onPress={addLabelPhoto} style={st.photoButton}><MaterialCommunityIcons name="camera-plus-outline" size={17} color={colors.primary} /><Text style={st.cameraButtonText}>{Platform.OS === 'web' ? 'Choose a label photo' : 'Take a label photo'}</Text></Pressable>
       {message ? <View style={st.message}><MaterialCommunityIcons name="information-outline" size={16} color={colors.amber} /><Text style={st.messageText}>{message}</Text></View> : null}

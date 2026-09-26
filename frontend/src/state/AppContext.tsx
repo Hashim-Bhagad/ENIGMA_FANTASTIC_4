@@ -1,18 +1,18 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { Allergen, api, ApiError, Assessment, DishAssessment, DishPayload, EU_ALLERGENS, FoodObservation, IntakeTarget, isNutrient, ProfilesGuide, ProfileData, Recommendation, SavedProfile, setUnauthorizedHandler, toProduct, type LabelExtractionMeta, type Photo, type Product } from '@/src/api/client';
+import { Allergen, api, ApiError, Assessment, DishAssessment, dishAssessmentPayload, EU_ALLERGENS, FoodObservation, IntakeTarget, isNutrient, ProfilesGuide, ProfileData, Recommendation, SavedProfile, setUnauthorizedHandler, toProduct, type LabelExtractionMeta, type Photo, type Product } from '@/src/api/client';
 import { session } from '@/src/api/session';
 
 export type AuthState = 'loading' | 'signed-out' | 'profile-missing' | 'ready' | 'session-error';
 export type Operation = 'auth' | 'search' | 'barcode' | 'label' | 'assess' | 'recommend' | 'history' | 'profile' | 'guide' | 'dish';
 
-export type DishIngredientDraft = { key: string; text: string; referenceCode: string | null; grams: string };
-export type DishDraft = { name: string; ingredients: DishIngredientDraft[]; cookingNotes: string[]; declarationsConfirmed: boolean; portion: string };
+export type DishIngredientDraft = { key: string; text: string; referenceCode: string | null };
+export type DishDraft = { name: string; ingredients: DishIngredientDraft[]; cookingNotes: string[]; declarationsConfirmed: boolean };
 
 /** The extracted product plus whether the photographed pack is now saved against its barcode. */
 export type LabelExtractionOutcome = { product: Product; saved: boolean; productId: string | null };
 
 const EMPTY_PROFILE: ProfileData = { conditions: [], allergies: [], ingredient_exclusions: [], limits: [], goals: [], preferences: '' };
-const EMPTY_DISH: DishDraft = { name: '', ingredients: [{ key: 'row-1', text: '', referenceCode: null, grams: '' }], cookingNotes: [], declarationsConfirmed: false, portion: '' };
+const EMPTY_DISH: DishDraft = { name: '', ingredients: [{ key: 'row-1', text: '', referenceCode: null }], cookingNotes: [], declarationsConfirmed: false };
 const UI_TO_ALLERGEN: Record<string, Allergen> = Object.fromEntries(EU_ALLERGENS.map(({ value, label }) => [label, value]));
 const ALLERGEN_TO_UI = Object.fromEntries(EU_ALLERGENS.map(({ value, label }) => [value, label])) as Record<Allergen, string>;
 const EMPTY_FOOD: FoodObservation = { name: 'New product', brand: null, barcode: null, category: null, basis: null, ingredients_text: null, advisories_text: null, ingredients_complete: false, advisories_complete: false, declared_allergens: [], precautionary_allergens: [], reported_allergens: [], nutrients: {}, source: { kind: 'manual', reference: 'User entered label observations', warnings: [] } };
@@ -296,26 +296,14 @@ export function AppProvider({ children }: React.PropsWithChildren) {
   }, [token, profile, withOperation]);
 
   /**
-   * Assess a draft. Callers that attach a reference or an amount from the result view pass the
-   * updated draft directly, so the check never runs against the state it is replacing.
+   * Assess a draft. Callers that attach a reference from the result view pass the updated draft
+   * directly, so the check never runs against the state it is replacing. Only wording and the
+   * chosen reference are sent: this screen collects no amounts and no portion.
    */
   const assessDish = useCallback(async (draft?: DishDraft) => {
     const source = draft ?? dishDraft;
     if (!token || !profile) throw new ApiError('Save a profile before assessing a cooked meal.', 409, 'conflict');
-    const name = source.name.trim();
-    if (!name) throw new ApiError('Enter the dish name before assessing.', 400, 'validation_error');
-    const ingredients: DishPayload['ingredients'] = [];
-    for (const row of source.ingredients) {
-      const text = row.text.trim();
-      if (!text) continue;
-      const grams = row.grams.trim() ? Number(row.grams) : null;
-      if (grams !== null && (!Number.isFinite(grams) || grams <= 0)) throw new ApiError('Ingredient grams must be a positive number or left blank.', 400, 'validation_error');
-      ingredients.push({ text, reference_code: row.referenceCode, grams });
-    }
-    if (!ingredients.length) throw new ApiError('Add at least one ingredient before assessing.', 400, 'validation_error');
-    const portionG = source.portion.trim() ? Number(source.portion) : null;
-    if (portionG !== null && (!Number.isFinite(portionG) || portionG <= 0)) throw new ApiError('Portion must be a positive number or left blank.', 400, 'validation_error');
-    const payload: DishPayload = { profile_id: profile.id, profile_version: profile.version, name, ingredients, cooking_notes: source.cookingNotes, declarations_confirmed: source.declarationsConfirmed, portion_g: portionG };
+    const payload = dishAssessmentPayload(profile, source);
     return withOperation('dish', async () => {
       setError('');
       try { const result = await api.assessDish(token, payload); setDishResult(result); return result; }

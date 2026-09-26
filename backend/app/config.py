@@ -38,7 +38,9 @@ class Settings(BaseSettings):
     dish_draft_max_tokens: int = Field(default=3072, ge=128, le=8192)
     # The wording fallback is a text call of the same shape as the draft, on a model that
     # reasons before it answers, so its budget also has to cover the reasoning trace.
-    dish_review_timeout: float = Field(default=45, gt=0, le=120)
+    # One dish check can spend this twice (wording review, then swap suggestions), so the
+    # whole model section stays bounded well inside the client's request timeout.
+    dish_review_timeout: float = Field(default=25, gt=0, le=120)
     dish_review_max_tokens: int = Field(default=3072, ge=128, le=8192)
     # Live Food.com recipe search. The actor charges per returned result, so
     # recipes_live_max_items is the spend cap and recipes_live_timeout_seconds

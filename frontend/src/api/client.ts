@@ -82,6 +82,13 @@ export type Photo = {
   // request then yields nothing. The base64 payload is read while the file is still open.
   file?: Blob | null;
   base64?: string | null;
+  // What the picker reported about the picked file. A phone camera hands back several
+  // thousand pixels a side, which is far more than a label or a barcode needs: the size
+  // decides whether the photo is shrunk before it is uploaded, and `fileSize` is what a
+  // photo too large to send is reported by.
+  width?: number | null;
+  height?: number | null;
+  fileSize?: number | null;
 };
 
 /** Turn a base64 payload into an uploadable File, or null when it is missing or empty. */
@@ -109,26 +116,60 @@ export type ProfilesGuide = {
 export type DishOptionNote = { code: string; label: string; detail: string; next_step: string };
 export type DishOptions = { cooking_notes: DishOptionNote[]; unknowns: string[]; assumptions: string[] };
 export type DishIngredient = { text: string; reference_code?: string | null; grams?: number | null };
+/**
+ * One line a meal check posts: the wording the typist wrote, plus the reference code a tapped
+ * suggestion attached. Amounts are not collected on this screen, so none is ever sent.
+ */
+export type DishCheckLine = { text: string; reference_code?: string | null };
 export type DishPayload = {
-  profile_id: string; profile_version: number; name: string; ingredients: DishIngredient[];
-  cooking_notes: string[]; declarations_confirmed: boolean; portion_g?: number | null;
+  profile_id: string; profile_version: number; name: string; ingredients: DishCheckLine[];
+  cooking_notes: string[]; declarations_confirmed: boolean;
 };
-export type DishMatch = { input_text: string; code: string; name: string; basis: string | null; grams: number | null; matched_by: string };
+/** The editable meal draft the payload builder reads: wording, reference, notes, confirmation. */
+export type DishCheckDraft = {
+  name: string; ingredients: { text: string; referenceCode: string | null }[];
+  cookingNotes: string[]; declarationsConfirmed: boolean;
+};
+export type DishMatch = { input_text: string; code: string; name: string; basis: string | null; grams: number | null; matched_by: string; note?: string | null };
 export type DishUnmatched = { input_text: string; reason: string };
 /** One ingredient the estimate had to leave out, and why. */
 export type DishEstimateExclusion = { input_text: string; reason: string };
 /**
- * A partial estimate is a floor, not the whole dish: it covers only the ingredients that are
- * both matched to a reference and weighed, and `excluded` names everything left out.
+ * The backend's per-100 g estimate. This screen never collects amounts, so `available` stays
+ * false and only `assumptions` is ever shown: every check above is a wording check.
  */
 export type DishEstimate = {
   available: boolean; basis: string | null; nutrients: Partial<Record<Nutrient, number | null>>;
   total_grams: number | null; assumptions: string[]; matched_count: number; matched_grams: number | null;
   excluded: DishEstimateExclusion[]; coverage_note: string;
 };
+/** The vocabulary the wording review must answer with; a row outside it is never shown. */
+export const DISH_REVIEW_VERDICTS = ['avoid', 'limit', 'no_concern_found', 'cannot_determine'] as const;
+export type DishReviewVerdict = (typeof DISH_REVIEW_VERDICTS)[number];
+export type DishReviewStatus = 'applied' | 'skipped' | 'unavailable';
+/** One reviewed wording line: a language judgement, never a verified label match. */
+export type DishReviewRow = {
+  input_text: string; verdict: DishReviewVerdict; reason: string | null;
+  matched_restriction: string | null; confidence: string | null;
+};
+export type DishModelReview = { status: DishReviewStatus; verdicts: DishReviewRow[]; message: string; disclaimer: string };
+/** A swap comes from the reviewed catalogue, or from a model suggestion screened the same way. */
+export type DishAlternativeSource = 'catalogue' | 'model';
+export type DishAlternativeOption = { text: string; why: string; conflicts: string[] };
+export type DishAlternativeEntry = {
+  input_text: string; reason: string; source: DishAlternativeSource; resolved_to?: string;
+  options: DishAlternativeOption[]; note?: string;
+};
+export type DishAlternatives = { version: string; entries: DishAlternativeEntry[]; notes: string[] };
 export type DishAssessment = {
   id: string;
-  dish: { name: string; matches: DishMatch[]; unmatched: DishUnmatched[]; estimate: DishEstimate };
+  dish: {
+    name: string; matches: DishMatch[]; unmatched: DishUnmatched[]; estimate: DishEstimate;
+    /** Always present: applied, skipped (nothing needed reviewing), or unavailable. */
+    model_review?: DishModelReview;
+    /** Swaps for the flagged lines, screened against every recorded restriction. */
+    alternatives?: DishAlternatives;
+  };
   assessment: AssessmentResult;
 };
 export type ReferenceFood = { code: string; name: string; data: Record<string, unknown>; source: string };
@@ -174,14 +215,48 @@ export function dishStatusExplanation(status: AssessmentStatus): string {
   return 'Every supported check ran on the available ingredient declarations and found no match with your recorded restrictions. This is not an overall safety verdict.';
 }
 
-/** The floor warning a partial estimate always carries: left-out ingredients can only add nutrients. */
-export const PARTIAL_ESTIMATE_FLOOR_NOTE = 'This is a floor, not the whole dish: the left-out ingredients are not counted, so the nutrients they carry are understated.';
+/**
+ * The whole estimate section now, and the honest reason there is no per-100 g figure in it:
+ * amounts are never collected, so nothing can be weighed.
+ */
+export const NO_AMOUNT_ESTIMATE_NOTE = 'Amounts are not collected here, so no per-100 g estimate is shown; the checks above are based on the ingredients you listed.';
 
-/** How much of the dish an estimate actually covers, in one line. */
-export function estimateCoverageLine(estimate: DishEstimate): string {
-  if (!estimate.available) return 'No nutrient estimate yet: no ingredient is both matched to a reference and weighed in grams.';
-  const grams = estimate.matched_grams == null ? '' : ` · ${estimate.matched_grams} g counted`;
-  return `Estimated from ${estimate.matched_count} weighed ingredient${estimate.matched_count === 1 ? '' : 's'}${grams}`;
+/** The line under the ingredient heading: each row is judged by its wording, not by an amount. */
+export const INGREDIENT_WORDING_NOTE = 'Every line is judged by the wording alone: no amount is collected, so nothing here is weighed or portioned.';
+
+/** The chip for one reviewed wording: four verdicts, four distinct labels and tones. */
+export type DishVerdictChip = { label: string; tone: 'red' | 'amber' | 'blue' | 'neutral' };
+
+/**
+ * Never render ``no_concern_found`` as safety: a wording that raised nothing was still only
+ * read as language, so its chip says what was read rather than giving a clearance.
+ */
+export function dishVerdictChip(verdict: DishReviewVerdict): DishVerdictChip {
+  if (verdict === 'avoid') return { label: 'AVOID', tone: 'red' };
+  if (verdict === 'limit') return { label: 'LIMIT', tone: 'amber' };
+  if (verdict === 'no_concern_found') return { label: 'NO CONCERN IN THIS WORDING', tone: 'blue' };
+  return { label: 'COULD NOT JUDGE', tone: 'neutral' };
+}
+
+/** Why an empty verdict is not a clearance, in the words the chip cannot carry. */
+export const NO_CONCERN_NOT_CLEARANCE = 'This wording raised nothing in the wording review. That is not a clearance: nothing about this line was verified.';
+
+/** The reason one reviewed line got its verdict, with the restriction it relates to when known. */
+export function dishReviewReason(row: DishReviewRow): string {
+  const reason = row.reason?.trim() || 'The review gave no reason for this line.';
+  return row.matched_restriction ? `${reason} Relates to your recorded restriction: ${row.matched_restriction}.` : reason;
+}
+
+/** One swap card as it renders: its label, its options as given, and any note left visible. */
+export type DishAlternativeView = Omit<DishAlternativeEntry, 'note'> & { sourceLabel: string; note: string | null };
+
+/** One view per flagged line. A note (removed conflicting options, spent budget) is never dropped. */
+export function dishAlternativeViews(block: DishAlternatives | null | undefined): DishAlternativeView[] {
+  return (block?.entries ?? []).map(entry => ({
+    ...entry,
+    sourceLabel: entry.source === 'catalogue' ? 'Reviewed swap' : 'Model suggestion',
+    note: entry.note?.trim() ? entry.note : null,
+  }));
 }
 
 /** The first ingredient row holding this typed wording, matched the way the backend matches it. */
@@ -213,9 +288,24 @@ export const DISH_DRAFT_ACTION = 'Draft this dish';
 /** The label a drafted list always carries, wherever it appears. */
 export const DISH_DRAFT_BANNER = 'Draft list — a model wrote this from the dish name. Correct every line before you check it.';
 
-/** One editable row per drafted line: no reference is attached and an unsure amount stays blank. */
-export function draftIngredientRows(draft: DishDraftResponse, keyPrefix: string): { key: string; text: string; referenceCode: string | null; grams: string }[] {
-  return draft.ingredients.map((item, index) => ({ key: `${keyPrefix}-${index + 1}`, text: item.text, referenceCode: null, grams: item.grams == null ? '' : String(item.grams) }));
+/** One editable row per drafted line: the wording only, since amounts are not collected. */
+export function draftIngredientRows(draft: DishDraftResponse, keyPrefix: string): { key: string; text: string; referenceCode: string | null }[] {
+  return draft.ingredients.map((item, index) => ({ key: `${keyPrefix}-${index + 1}`, text: item.text, referenceCode: null }));
+}
+
+/**
+ * The exact body a meal check posts: the dish name, each typed wording with the reference code a
+ * tapped suggestion attached, the cooking notes and the confirmation. No amount, no portion and
+ * no serving weight is ever sent — the check judges the ingredients that were listed.
+ */
+export function dishAssessmentPayload(profile: SavedProfile, draft: DishCheckDraft): DishPayload {
+  const name = draft.name.trim();
+  if (!name) throw new ApiError('Enter the dish name before assessing.', 400, 'validation_error');
+  const ingredients = draft.ingredients
+    .filter(row => row.text.trim())
+    .map(row => ({ text: row.text.trim(), reference_code: row.referenceCode }));
+  if (!ingredients.length) throw new ApiError('Add at least one ingredient before assessing.', 400, 'validation_error');
+  return { profile_id: profile.id, profile_version: profile.version, name, ingredients, cooking_notes: draft.cookingNotes, declarations_confirmed: draft.declarationsConfirmed };
 }
 export type CatalogResponse = { products: { id: string; food: FoodObservation; updated_at: string }[]; query_type?: string; live_requested?: boolean; live_status?: string; message?: string; skipped_records?: number };
 export type Recipe = { id: string; name: string; ingredients: DishIngredient[]; source: Record<string, unknown>; review_status: string; warnings: string[] };
@@ -409,6 +499,20 @@ export type LabelExtractionResult = {
   product_id: string | null;
 };
 
+/** One other retail code printed on the same photo. */
+export type ScannedBarcode = { barcode: string; format: string };
+
+/** What the server read out of a barcode photo, and what to do with it next. */
+export type BarcodeScanResult = {
+  /** The digits, always one of the retail lengths `isUsableBarcode` accepts. */
+  barcode: string;
+  /** The printed symbology the decoder recognised, e.g. `EAN-13`. */
+  format: string;
+  /** Further codes on the same photo, best first, when it held more than one. */
+  alternatives: ScannedBarcode[];
+  message: string;
+};
+
 /** The digit counts a printed retail barcode and the backend both accept. */
 export function isUsableBarcode(value: string): boolean {
   return /^(?:[0-9]{8}|[0-9]{12,14})$/.test(value.trim());
@@ -477,10 +581,86 @@ export function labelExtractionMessage(result: { saved: boolean }, attachedBarco
 }
 
 const DEFAULT_TIMEOUT_MS = 15_000;
-const LABEL_TIMEOUT_MS = 60_000;
+const PHOTO_TIMEOUT_MS = 60_000;
 const DRAFT_TIMEOUT_MS = 45_000;
 const REPORT_TIMEOUT_MS = 90_000;
 export const TIMEOUT_MESSAGE = 'The server did not respond in time. Check your connection and try again.';
+
+// --- Fitting a phone photo under a route's upload limit ------------------------------
+/** The longest edge a label or barcode photo keeps: plenty of detail, well under the byte caps. */
+export const PHOTO_MAX_EDGE_PX = 1600;
+/** JPEG quality for a shrunk photo: the print stays legible at a fraction of the original bytes. */
+export const PHOTO_JPEG_QUALITY = 0.7;
+/** What the label route accepts; a larger photo is refused on the phone, before it is sent. */
+export const LABEL_PHOTO_LIMIT_BYTES = 5 * 1024 * 1024;
+/** What the barcode-scan route accepts, for a photo the in-app camera could not read. */
+export const BARCODE_PHOTO_LIMIT_BYTES = 8 * 1024 * 1024;
+
+/**
+ * Whether a picked photo is longer than the edge we upload. A picker that reported no
+ * dimensions is left alone: guessing a resize would risk uploading a broken file, and the
+ * server's own refusal is a better answer than a corrupted photo.
+ */
+export function needsPhotoResize(photo: { width?: number | null; height?: number | null }, maxEdge = PHOTO_MAX_EDGE_PX): boolean {
+  const width = photo.width ?? 0;
+  const height = photo.height ?? 0;
+  return Number.isFinite(width) && Number.isFinite(height) && Math.max(width, height) > maxEdge;
+}
+
+/** Megabytes with a decimal only where it says something, the way the backend prints them. */
+function megabytes(bytes: number): string {
+  const value = bytes / 1048576;
+  return `${Number.isInteger(value) ? value : value.toFixed(1)} MB`;
+}
+
+/**
+ * Say a photo is still too large to send, or null when it fits. The threshold sits at 90% of
+ * the route's limit so the user hears the size from the app, not from a rejected upload.
+ */
+export function photoSizeWarning(bytes: number | null | undefined, limitBytes: number): string | null {
+  if (bytes == null || !Number.isFinite(bytes) || bytes <= Math.floor(limitBytes * 0.9)) return null;
+  return `This photo is still ${megabytes(bytes)}; the limit is ${megabytes(limitBytes)}. Retake it at a lower resolution.`;
+}
+
+/** The file a photo is about to upload as, and how big it is when that is known. */
+export type PreparedPhoto = { uri: string; name: string; mimeType: string; bytes: number | null };
+
+/** The name a re-encoded photo uploads under: the picked name with a JPEG extension. */
+function jpegPhotoName(name: string | null | undefined): string {
+  const picked = (name ?? '').trim();
+  return picked ? `${picked.replace(/\.[^./\\]+$/, '')}.jpg` : 'photo.jpg';
+}
+
+/**
+ * Fit a native photo to the upload: one whose longest edge is above `maxEdge` is re-encoded at
+ * that edge as a JPEG, and anything already smaller uploads as picked. A resize that fails
+ * never blocks the upload — the picked file goes instead, with the size the picker reported, so
+ * the caller can say the photo is still too large before the server has to.
+ *
+ * `bytes` is null for a photo that was shrunk: its exact size is not reported back, and it is
+ * far under the cap by construction.
+ */
+export async function preparePhotoForUpload(photo: Photo, fallbackName = 'photo.jpg', maxEdge = PHOTO_MAX_EDGE_PX): Promise<PreparedPhoto> {
+  const pickedName = photo.name?.trim() || fallbackName;
+  const picked: PreparedPhoto = { uri: photo.uri, name: pickedName, mimeType: photo.mimeType || 'image/jpeg', bytes: photo.fileSize ?? null };
+  if (Platform.OS === 'web' || !needsPhotoResize(photo, maxEdge)) return picked;
+  try {
+    // Deferred on purpose: `expo-image-manipulator` is a native module that throws when it is
+    // loaded outside the app, so a static import would break the web bundle and the Node tests.
+    const { ImageManipulator, SaveFormat } = await import('expo-image-manipulator');
+    const context = ImageManipulator.manipulate(photo.uri);
+    // One edge is enough: the other follows the aspect ratio.
+    context.resize((photo.width ?? 0) >= (photo.height ?? 0) ? { width: maxEdge } : { height: maxEdge });
+    const image = await context.renderAsync();
+    const saved = await image.saveAsync({ compress: PHOTO_JPEG_QUALITY, format: SaveFormat.JPEG });
+    context.release();
+    image.release();
+    return { uri: saved.uri, name: jpegPhotoName(pickedName), mimeType: 'image/jpeg', bytes: null };
+  } catch {
+    // Resizing is a convenience, never a requirement: the picked photo still goes.
+    return picked;
+  }
+}
 
 let unauthorizedHandler: (() => void) | null = null;
 /** Register a global reaction to any 401. The stored token is cleared before it runs. */
@@ -536,6 +716,37 @@ async function request<T>(path: string, token?: string, init: RequestInit = {}, 
   return response.json() as Promise<T>;
 }
 
+/**
+ * The multipart `file` field for a picked photo: a real File on web (built from the base64 the
+ * picker read, so a revoked blob: URL cannot empty the upload), and the resized native file
+ * elsewhere. A native photo that is still over `limitBytes` after the resize is refused here,
+ * with its size, so the user hears why instead of receiving a bare 413.
+ */
+async function photoForm(photo: Photo, limitBytes: number, fallbackName: string): Promise<FormData> {
+  const form = new FormData();
+  if (Platform.OS === 'web') {
+    // Prefer the file the picker already handed us: its blob: URL can be revoked before we
+    // fetch it (net::ERR_FILE_NOT_FOUND), which made every web upload fail. Only fall back to
+    // fetching the URI when no file was supplied.
+    const fromBase64 = photoFileFromBase64(photo);
+    const supplied = fromBase64 ?? (photo.file instanceof Blob && photo.file.size > 0 ? photo.file : null);
+    let blob: Blob;
+    if (supplied) {
+      blob = supplied;
+    } else {
+      blob = await (await fetch(photo.uri)).blob();
+    }
+    if (!blob.size) throw new ApiError('The picked photo could not be read. Choose it again.', undefined, 'network');
+    form.append('file', new File([blob], photo.name || fallbackName, { type: photo.mimeType || blob.type || 'image/jpeg' }));
+    return form;
+  }
+  const prepared = await preparePhotoForUpload(photo, fallbackName);
+  const tooLarge = photoSizeWarning(prepared.bytes, limitBytes);
+  if (tooLarge) throw new ApiError(tooLarge, undefined, 'payload_too_large');
+  form.append('file', { uri: prepared.uri, name: prepared.name, type: prepared.mimeType } as unknown as Blob);
+  return form;
+}
+
 export const api = {
   register: (email: string, password: string) => request<{ user: { id: string; email: string }; access_token: string }>('/api/auth/register', undefined, { method: 'POST', body: JSON.stringify({ email, password }) }),
   login: (email: string, password: string) => request<{ user: { id: string; email: string }; access_token: string }>('/api/auth/login', undefined, { method: 'POST', body: JSON.stringify({ email, password }) }),
@@ -551,30 +762,21 @@ export const api = {
   provenance: (token: string, id: string) => request<ProductProvenance>(`/api/products/${encodeURIComponent(id)}/provenance`, token),
   referenceFoods: (token: string, q: string, limit?: number) => request<ReferenceFoodsResult>(`/api/reference-foods?q=${encodeURIComponent(q)}${limit == null ? '' : `&limit=${limit}`}`, token),
   extractLabel: async (token: string, photo: Photo, meta?: LabelExtractionMeta) => {
-    const form = new FormData();
-    if (Platform.OS === 'web') {
-      // Prefer the file the picker already handed us: its blob: URL can be revoked before we
-      // fetch it (net::ERR_FILE_NOT_FOUND), which made every web label upload fail. Only fall
-      // back to fetching the URI when no file was supplied.
-      const fromBase64 = photoFileFromBase64(photo);
-      const supplied = fromBase64 ?? (photo.file instanceof Blob && photo.file.size > 0 ? photo.file : null);
-      let blob: Blob;
-      if (supplied) {
-        blob = supplied;
-      } else {
-        blob = await (await fetch(photo.uri)).blob();
-      }
-      if (!blob.size) throw new ApiError('The picked photo could not be read. Choose it again.', undefined, 'network');
-      form.append('file', new File([blob], photo.name || 'label.jpg', { type: photo.mimeType || blob.type || 'image/jpeg' }));
-    } else {
-      form.append('file', { uri: photo.uri, name: photo.name || 'label.jpg', type: photo.mimeType || 'image/jpeg' } as unknown as Blob);
-    }
+    const form = await photoForm(photo, LABEL_PHOTO_LIMIT_BYTES, 'label.jpg');
     // A barcode sent with the photo makes the extracted record answer that barcode next time.
     const barcode = meta?.barcode?.trim();
     if (barcode) form.append('barcode', barcode);
     const name = meta?.name?.trim();
     if (name) form.append('name', name);
-    return request<LabelExtractionResult>('/api/labels/extract', token, { method: 'POST', body: form }, LABEL_TIMEOUT_MS);
+    return request<LabelExtractionResult>('/api/labels/extract', token, { method: 'POST', body: form }, PHOTO_TIMEOUT_MS);
+  },
+  /**
+   * Read a barcode from a photo, for the codes the in-app camera could not see: it is the
+   * browser's only scanner, and the native fallback when the camera window is unusable.
+   */
+  scanBarcode: async (token: string, photo: Photo) => {
+    const form = await photoForm(photo, BARCODE_PHOTO_LIMIT_BYTES, 'barcode.jpg');
+    return request<BarcodeScanResult>('/api/barcodes/scan', token, { method: 'POST', body: form }, PHOTO_TIMEOUT_MS);
   },
   assess: (token: string, profile: SavedProfile, food: FoodObservation, portion: number | null) => request<Assessment>('/api/assessments', token, { method: 'POST', body: JSON.stringify({ profile_id: profile.id, profile_version: profile.version, food, portion }) }),
   history: async (token: string, limit = 20, offset = 0): Promise<HistoryPage> => {
