@@ -17,6 +17,8 @@ this index is a map of everything else.
 
 ## Verification evidence
 
+- [Gap remediation (2026-09-26)](gap-remediation-2026-09-26.md) — every audited gap, what changed,
+  the deliberate limitations, and the reproduced verification for the committed tree.
 - [Source and importer verification (2026-09-26)](source-verification/adapter-validation-2026-09-26.md)
   — bounded probes of IFCT, Open Food Facts, Apify, and Barcode List.
 - [Reported barcode audit (8909081007163)](source-verification/barcode-8909081007163.md).
