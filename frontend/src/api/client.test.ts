@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  allergenLabel, confidenceLabel, dishStatusExplanation, EU_ALLERGENS, evidenceReportLabel, formatEvidence,
-  formatReferenceRange, isNutrient, parameterStatusTone, referenceSuggestionLabel, TYPE_AHEAD_DELAY_MS,
-  TYPE_AHEAD_MIN_CHARS, typeAheadTerm,
+  allergenLabel, attachReferenceToRows, avoidSeverityLabel, avoidSeverityTone, confidenceLabel,
+  dishStatusExplanation, estimateCoverageLine, EU_ALLERGENS, evidenceReportLabel, formatEquivalent, formatEvidence,
+  formatMeasuredLine, formatReferenceRange, ingredientRowKeyFor, intakeBaselineLine, intakeProposedLine, isNutrient,
+  parameterStatusTone, PARTIAL_ESTIMATE_FLOOR_NOTE, referenceSuggestionLabel, TYPE_AHEAD_DELAY_MS,
+  TYPE_AHEAD_MIN_CHARS, typeAheadTerm, type IntakeTarget,
 } from './client';
 
 // The client and the session module import native modules; stubbing them keeps the
@@ -189,6 +191,38 @@ describe('api client reports, conditions and intake contract', () => {
     ]);
   });
 
+  it('carries the cooking-unit numbers, derivation and avoid groups through the plan', async () => {
+    const payload = {
+      version: 'p2',
+      targets: [{
+        nutrient: 'sodium_mg', label: 'Sodium', unit: 'mg', baseline_value: 2100, baseline_source: 'blood pressure rule',
+        proposed_value: 1500, direction: 'lower', rule_id: 'bp-sodium', basis: 'basis', confidence: 'established',
+        requires_clinician: false, evidence: [], questions: [], limit_scope: 'daily', suggested_limit_source: 'Clinician guidance',
+        display_value: '1500 mg sodium ≈ 3.8 g salt',
+        equivalents: [{ label: 'Salt', value: 3.8, unit: 'g' }],
+        derivation: 'Systolic blood pressure 138 mmHg is at or above 130 mmHg → sodium ceiling 1500 mg/day (≈3.8 g salt)',
+        measured: [{ kind: 'lab', label: 'Systolic blood pressure', detail: '', parameter_key: 'bp_systolic', value: 138, unit: 'mmHg', reference_high: 130 }],
+      }],
+      avoid: [{
+        id: 'bp-salt', title: 'Salt-heavy foods', detail: 'Raised blood pressure', severity: 'limit',
+        items: [{ label: 'Processed meats', examples: ['sausage'], reason: 'High sodium', linked_nutrients: ['sodium_mg'] }],
+        confidence: 'established', sources: ['https://example.test/guideline'], evidence: [{ kind: 'lab', label: 'Systolic blood pressure', detail: '' }],
+      }],
+      conditions: [], unrecognised_conditions: [], reports_used: ['r1'], notes: [], coverage: 'coverage',
+    };
+    const fetchMock = vi.fn(async (_url: string, _init: FetchInit) => ({ ok: true, status: 200, json: async () => payload }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { api } = await import('./client');
+    const plan = await api.intakePlan('token', 'profile-1', 2);
+    expect(plan.targets[0]?.display_value).toBe('1500 mg sodium ≈ 3.8 g salt');
+    expect(plan.targets[0]?.equivalents[0]).toEqual({ label: 'Salt', value: 3.8, unit: 'g' });
+    expect(plan.targets[0]?.derivation).toMatch(/138 mmHg/);
+    expect(plan.targets[0]?.measured[0]?.value).toBe(138);
+    expect(plan.avoid[0]?.severity).toBe('limit');
+    expect(plan.avoid[0]?.items[0]?.linked_nutrients).toEqual(['sodium_mg']);
+    expect(plan.avoid[0]?.evidence).toHaveLength(1);
+  });
+
   it('keeps the documented error codes on report upload failures', async () => {
     const { fetchMock } = uploadFetch({ ok: false, status: 429, json: async () => ({ detail: 'Too many reports in a short time', code: 'rate_limited' }) });
     vi.stubGlobal('fetch', fetchMock);
@@ -279,5 +313,69 @@ describe('meal-check and report display helpers', () => {
     expect(isNutrient('sodium_mg')).toBe(true);
     expect(isNutrient('energy_kcal')).toBe(true);
     expect(isNutrient('vitamin_d_ug')).toBe(false);
+  });
+
+  it('reads a partial estimate as coverage of the weighed ingredients', () => {
+    const estimate = { available: true, basis: '100g', nutrients: {}, total_grams: 200, assumptions: [], matched_count: 2, matched_grams: 200, excluded: [], coverage_note: '' };
+    expect(estimateCoverageLine(estimate)).toBe('Estimated from 2 weighed ingredients · 200 g counted');
+    expect(estimateCoverageLine({ ...estimate, matched_count: 1 })).toBe('Estimated from 1 weighed ingredient · 200 g counted');
+    expect(estimateCoverageLine({ ...estimate, matched_grams: null })).toBe('Estimated from 2 weighed ingredients');
+    expect(estimateCoverageLine({ ...estimate, available: false })).toMatch(/^No nutrient estimate/);
+  });
+
+  it('states that a partial estimate is a floor, never the whole dish', () => {
+    expect(PARTIAL_ESTIMATE_FLOOR_NOTE).toMatch(/floor/i);
+    expect(PARTIAL_ESTIMATE_FLOOR_NOTE).toMatch(/understated/i);
+  });
+
+  it('finds the ingredient row a result row came from', () => {
+    const rows = [{ key: 'a', text: 'Salt' }, { key: 'b', text: '  Paneer  ' }, { key: 'c', text: 'salt' }];
+    expect(ingredientRowKeyFor(rows, 'paneer')).toBe('b');
+    expect(ingredientRowKeyFor(rows, 'SALT')).toBe('a');
+    expect(ingredientRowKeyFor(rows, 'ghee')).toBeNull();
+  });
+
+  it('attaches a chosen reference to that row only, leaving the rest untouched', () => {
+    const rows = [
+      { key: 'a', text: 'Salt', referenceCode: null as string | null, grams: '' },
+      { key: 'b', text: 'Paneer', referenceCode: null as string | null, grams: '100' },
+    ];
+    const attached = attachReferenceToRows(rows, '  paneer ', 'IFCT-9');
+    expect(attached[1]).toMatchObject({ key: 'b', referenceCode: 'IFCT-9', grams: '100' });
+    expect(attached[0]).toBe(rows[0]);
+    expect(attached).toHaveLength(2);
+    // Ids are attached by wording, so an unknown wording changes nothing.
+    expect(attachReferenceToRows(rows, 'ghee', 'IFCT-9')).toEqual(rows);
+  });
+
+  it('reads one measured lab value with its range and report', () => {
+    expect(formatMeasuredLine({ kind: 'lab', label: 'HbA1c', detail: '', parameter_key: 'hba1c', value: 7.4, unit: '%', reference_low: 4, reference_high: 5.6, report_id: 'abcdef1234567890' }))
+      .toBe('your HbA1c: 7.4 % (range 4–5.6) · Report abcdef12');
+    expect(formatMeasuredLine({ kind: 'lab', label: 'Creatinine', detail: '', value: null, unit: 'mg/dL' }))
+      .toBe('your Creatinine: value not recorded (range not printed)');
+  });
+
+  it('formats a kitchen-unit equivalent as label and amount', () => {
+    expect(formatEquivalent({ label: 'Salt', value: 3.8, unit: 'g' })).toBe('Salt: 3.8 g');
+    expect(formatEquivalent({ label: 'Sugar', value: 6, unit: 'tsp' })).toBe('Sugar: 6 tsp');
+  });
+
+  it('gives every avoid severity its own chip and colour', () => {
+    expect(avoidSeverityLabel('avoid')).toBe('AVOID');
+    expect(avoidSeverityLabel('limit')).toBe('LIMIT');
+    expect(avoidSeverityLabel('ask')).toMatch(/clinician/i);
+    expect(new Set((['avoid', 'limit', 'ask'] as const).map(avoidSeverityLabel)).size).toBe(3);
+    expect(avoidSeverityTone('avoid')).toBe('red');
+    expect(avoidSeverityTone('limit')).toBe('amber');
+    expect(avoidSeverityTone('ask')).toBe('blue');
+  });
+
+  it('asks a clinician to set the value instead of implying one is applied', () => {
+    const clinicianOnly: IntakeTarget = { nutrient: 'potassium_mg', label: 'Potassium', unit: 'mg', baseline_source: 'condition', direction: 'lower', rule_id: 'ckd-potassium', basis: 'basis', confidence: 'clinician_only', requires_clinician: true, evidence: [], questions: [], limit_scope: 'daily', equivalents: [], measured: [] };
+    expect(intakeProposedLine(clinicianOnly)).toMatch(/clinician/i);
+    expect(intakeProposedLine(clinicianOnly)).not.toMatch(/at most|at least/);
+    expect(intakeProposedLine({ ...clinicianOnly, confidence: 'established', requires_clinician: false, proposed_value: 1500, direction: 'lower' })).toBe('Proposed daily limit: at most 1500 mg');
+    expect(intakeBaselineLine({ ...clinicianOnly, baseline_value: 2100 })).toBe('Recorded baseline: 2100 mg · condition');
+    expect(intakeBaselineLine(clinicianOnly)).toBe('No recorded baseline · condition');
   });
 });

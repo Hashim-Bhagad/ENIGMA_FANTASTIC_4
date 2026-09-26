@@ -13,11 +13,15 @@ function SessionGate() {
   const router = useRouter();
   useEffect(() => {
     const route = segments[0];
+    // Expo writes typed routes into .expo/types locally; CI never has them, where the tuple
+    // degrades to [string] and indexing past 0 is a type error. Read through a string view so
+    // the redirect logic is identical in both environments.
+    const section = (segments as readonly string[])[1];
     if (authState === 'loading') return;
     if (authState === 'signed-out' || authState === 'session-error') {
       if (route !== 'login') router.replace('/login');
     } else if (authState === 'profile-missing') {
-      if (route !== '(tabs)' || segments[1] !== 'profile') router.replace('/(tabs)/profile');
+      if (route !== '(tabs)' || section !== 'profile') router.replace('/(tabs)/profile');
     } else if (authState === 'ready' && route === 'login') router.replace('/(tabs)/guide');
   }, [authState, router, segments]);
   if (authState === 'loading') return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.canvas }}><ActivityIndicator color={colors.primary} /></View>;

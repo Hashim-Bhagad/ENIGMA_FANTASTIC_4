@@ -162,7 +162,9 @@ def normalize_report(data: dict, model: str, input_kind: str) -> dict:
                 "raw_text": _text(item.get("raw_text"), 200),
             }
         )
-    warnings = [w.strip()[:200] for w in data.get("warnings") or [] if isinstance(w, str) and w.strip()]
+    warnings = [
+        w.strip()[:200] for w in data.get("warnings") or [] if isinstance(w, str) and w.strip()
+    ]
     return {
         "parameters": parameters,
         "collected_on": _text(data.get("collected_on"), 20),
@@ -325,7 +327,9 @@ class ModelAssist:
             "When a number is not clearly legible, set that field to null; an illegible value stays unknown. "
             "Put the report's collection date in collected_on when it is printed, else null. "
             "List in warnings anything you could not read or that looked ambiguous. "
-            "Canonical parameters:\n" + PARAMETER_HINTS + "\nReturn JSON using this schema: "
+            "Canonical parameters:\n"
+            + PARAMETER_HINTS
+            + "\nReturn JSON using this schema: "
             + json.dumps(REPORT_SCHEMA)
         )
         try:

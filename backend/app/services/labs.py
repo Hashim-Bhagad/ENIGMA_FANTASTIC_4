@@ -103,7 +103,14 @@ LAB_REGISTRY: dict[str, dict[str, Any]] = {
     "rbc_million_ul": {
         "label": "Red blood cell count",
         "unit": "million/uL",
-        "aliases": ["rbc", "rbcs", "rbc count", "red blood cell count", "red blood cells", "erythrocytes"],
+        "aliases": [
+            "rbc",
+            "rbcs",
+            "rbc count",
+            "red blood cell count",
+            "red blood cells",
+            "erythrocytes",
+        ],
         "bounds": (1.0, 10.0),
         "ranges": {
             "default": (4.0, 6.0),
@@ -201,7 +208,14 @@ LAB_REGISTRY: dict[str, dict[str, Any]] = {
     "hba1c_percent": {
         "label": "HbA1c",
         "unit": "%",
-        "aliases": ["hba1c", "hb a1c", "glycated haemoglobin", "glycated hemoglobin", "glycosylated hemoglobin", "a1c"],
+        "aliases": [
+            "hba1c",
+            "hb a1c",
+            "glycated haemoglobin",
+            "glycated hemoglobin",
+            "glycosylated hemoglobin",
+            "a1c",
+        ],
         "bounds": (2.0, 25.0),
         "ranges": {"default": (4.0, 5.6)},
         "source": "https://www.cdc.gov/diabetes/diabetes-testing/prediabetes-a1c-test.html",
@@ -210,7 +224,13 @@ LAB_REGISTRY: dict[str, dict[str, Any]] = {
     "total_cholesterol_mg_dl": {
         "label": "Total cholesterol",
         "unit": "mg/dL",
-        "aliases": ["cholesterol", "cholesterol total", "total cholesterol", "serum cholesterol", "s cholesterol"],
+        "aliases": [
+            "cholesterol",
+            "cholesterol total",
+            "total cholesterol",
+            "serum cholesterol",
+            "s cholesterol",
+        ],
         "bounds": (50.0, 800.0),
         "ranges": {"default": (0.0, 200.0)},
         "source": "https://www.cdc.gov/cholesterol/about/index.html",
@@ -352,7 +372,15 @@ LAB_REGISTRY: dict[str, dict[str, Any]] = {
     "alt_u_l": {
         "label": "Alanine aminotransferase (ALT/SGPT)",
         "unit": "U/L",
-        "aliases": ["alt", "sgpt", "sgot sgpt", "alanine aminotransferase", "alt sgpt", "sgpt alt", "serum alt"],
+        "aliases": [
+            "alt",
+            "sgpt",
+            "sgot sgpt",
+            "alanine aminotransferase",
+            "alt sgpt",
+            "sgpt alt",
+            "serum alt",
+        ],
         "bounds": (0.0, 5000.0),
         "ranges": {"default": (7.0, 56.0)},
         "source": "https://medlineplus.gov/lab-tests/liver-function-tests/",
@@ -361,7 +389,14 @@ LAB_REGISTRY: dict[str, dict[str, Any]] = {
     "ast_u_l": {
         "label": "Aspartate aminotransferase (AST/SGOT)",
         "unit": "U/L",
-        "aliases": ["ast", "sgot", "aspartate aminotransferase", "ast sgot", "sgot ast", "serum ast"],
+        "aliases": [
+            "ast",
+            "sgot",
+            "aspartate aminotransferase",
+            "ast sgot",
+            "sgot ast",
+            "serum ast",
+        ],
         "bounds": (0.0, 5000.0),
         "ranges": {"default": (10.0, 40.0)},
         "source": "https://medlineplus.gov/lab-tests/liver-function-tests/",
@@ -370,7 +405,13 @@ LAB_REGISTRY: dict[str, dict[str, Any]] = {
     "bilirubin_total_mg_dl": {
         "label": "Total bilirubin",
         "unit": "mg/dL",
-        "aliases": ["bilirubin", "total bilirubin", "bilirubin total", "serum bilirubin", "s bilirubin"],
+        "aliases": [
+            "bilirubin",
+            "total bilirubin",
+            "bilirubin total",
+            "serum bilirubin",
+            "s bilirubin",
+        ],
         "bounds": (0.05, 60.0),
         "ranges": {"default": (0.1, 1.2)},
         "source": "https://medlineplus.gov/lab-tests/liver-function-tests/",
@@ -415,7 +456,14 @@ LAB_REGISTRY: dict[str, dict[str, Any]] = {
     "vitamin_b12_pg_ml": {
         "label": "Vitamin B12",
         "unit": "pg/mL",
-        "aliases": ["vitamin b12", "vit b12", "b12", "cobalamin", "serum vitamin b12", "cyanocobalamin"],
+        "aliases": [
+            "vitamin b12",
+            "vit b12",
+            "b12",
+            "cobalamin",
+            "serum vitamin b12",
+            "cyanocobalamin",
+        ],
         "bounds": (10.0, 5000.0),
         "ranges": {"default": (200.0, 900.0), "75_plus": (180.0, 900.0)},
         "source": "https://ods.od.nih.gov/factsheets/VitaminB12-Consumer/",
@@ -433,7 +481,14 @@ LAB_REGISTRY: dict[str, dict[str, Any]] = {
     "crp_mg_l": {
         "label": "C-reactive protein",
         "unit": "mg/L",
-        "aliases": ["crp", "c reactive protein", "c-reactive protein", "hs crp", "hscrp", "high sensitivity crp"],
+        "aliases": [
+            "crp",
+            "c reactive protein",
+            "c-reactive protein",
+            "hs crp",
+            "hscrp",
+            "high sensitivity crp",
+        ],
         "bounds": (0.0, 500.0),
         "ranges": {"default": (0.0, 5.0)},
         "source": "https://medlineplus.gov/lab-tests/c-reactive-protein-crp-test/",
@@ -574,11 +629,41 @@ def _normalise_unit(unit: str | None) -> str | None:
     return _UNIT_ALIASES.get(text)
 
 
-def convert(value: float | None, unit: str | None, target_unit: str | None) -> float | None:
+# A unit pair alone cannot identify the analyte: mg/dL and mmol/L belong to glucose,
+# cholesterol and triglycerides at once, so the conversion group is chosen by the
+# canonical key of the parameter being read.
+_CONVERSION_KEYS: dict[str, str] = {
+    "fasting_glucose_mg_dl": "glucose",
+    "random_glucose_mg_dl": "glucose",
+    "total_cholesterol_mg_dl": "cholesterol",
+    "ldl_cholesterol_mg_dl": "cholesterol",
+    "hdl_cholesterol_mg_dl": "cholesterol",
+    "triglycerides_mg_dl": "triglycerides",
+    "creatinine_mg_dl": "creatinine",
+    "hemoglobin_g_dl": "haemoglobin",
+    "vitamin_d_ng_ml": "vitamin_d",
+    "vitamin_b12_pg_ml": "vitamin_b12",
+    "uric_acid_mg_dl": "urate",
+}
+
+assert set(_CONVERSION_KEYS) <= set(CANONICAL_KEYS), "every convertible key must be canonical"
+assert set(_CONVERSION_KEYS.values()) == set(_CONVERSIONS), "every conversion group needs a key"
+
+
+def convert(
+    value: float | None,
+    unit: str | None,
+    target_unit: str | None,
+    key: str | None = None,
+) -> float | None:
     """Convert between the accepted unit pairs; ``None`` when no pair applies.
 
     Only pairs whose quantity is unambiguous are converted (glucose, cholesterol/
     LDL/HDL, triglycerides, creatinine, haemoglobin, vitamins D and B12, urate).
+
+    ``key`` is the canonical parameter being converted and selects its conversion
+    group. Without a key only a unit pair that occurs in exactly one group is
+    converted, so a pair that could describe several analytes is never guessed.
     """
     if value is None:
         return None
@@ -586,10 +671,18 @@ def convert(value: float | None, unit: str | None, target_unit: str | None) -> f
     target = _normalise_unit(target_unit)
     if source is None or target is None:
         return None
-    for group in _CONVERSIONS.values():
+    group = _CONVERSIONS.get(_CONVERSION_KEYS.get(key or "", ""))
+    if group is not None:
         if source in group and target in group:
             return value * group[source] / group[target]
-    return None
+        return None
+    matches = [
+        factors for factors in _CONVERSIONS.values() if source in factors and target in factors
+    ]
+    if len(matches) != 1:
+        return None
+    factors = matches[0]
+    return value * factors[source] / factors[target]
 
 
 # --- Reference ranges and classification --------------------------------------------------
@@ -713,7 +806,7 @@ def build_parameters(
         if entry and value is not None and unit:
             target = entry["unit"]
             if _normalise_unit(unit) != _normalise_unit(target):
-                converted = convert(value, unit, target)
+                converted = convert(value, unit, target, key)
                 if converted is None:
                     warnings.append(
                         f"{entry['label']}: unit {unit!r} is not convertible to {target}; "
@@ -723,9 +816,9 @@ def build_parameters(
                     value = converted
                     # Move the printed range with the value so classification stays consistent.
                     if reference_low is not None:
-                        reference_low = convert(reference_low, unit, target)
+                        reference_low = convert(reference_low, unit, target, key)
                     if reference_high is not None:
-                        reference_high = convert(reference_high, unit, target)
+                        reference_high = convert(reference_high, unit, target, key)
                     unit = target
         value, warning = quarantine(value, key)
         if warning:

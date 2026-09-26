@@ -4,17 +4,49 @@
     "name": "Paneer butter masala (demo template)",
     "raw": {
       "ingredients": [
-        {"text": "Paneer", "reference_code": "L003", "grams": 200},
-        {"text": "Tomato", "grams": 300},
-        {"text": "Butter", "grams": 40},
-        {"text": "Cream", "grams": 60},
-        {"text": "Cashew nuts", "grams": 30},
-        {"text": "Salt", "grams": 6},
-        {"text": "Sugar", "grams": 5}
+        {
+          "text": "Paneer",
+          "reference_code": "L003",
+          "grams": 200
+        },
+        {
+          "text": "Tomato",
+          "grams": 300,
+          "reference_code": "D075"
+        },
+        {
+          "text": "Butter",
+          "grams": 40
+        },
+        {
+          "text": "Cream",
+          "grams": 60
+        },
+        {
+          "text": "Cashew nuts",
+          "grams": 30,
+          "reference_code": "H005"
+        },
+        {
+          "text": "Salt",
+          "grams": 6
+        },
+        {
+          "text": "Sugar",
+          "grams": 5
+        }
       ],
-      "cooking_notes": ["gravy_or_curry", "added_salt", "packaged_sauce"]
+      "cooking_notes": [
+        "gravy_or_curry",
+        "added_salt",
+        "packaged_sauce"
+      ]
     },
-    "source": {"provider": "synthetic demo template", "reference": "demo-recipe-paneer-butter-masala", "dataset_id": "demo-recipes"},
+    "source": {
+      "provider": "synthetic demo template",
+      "reference": "demo-recipe-paneer-butter-masala",
+      "dataset_id": "demo-recipes"
+    },
     "review_status": "validated"
   },
   {
@@ -22,15 +54,39 @@
     "name": "Besan chilla (demo template)",
     "raw": {
       "ingredients": [
-        {"text": "Besan", "grams": 100},
-        {"text": "Onion", "grams": 60},
-        {"text": "Tomato", "grams": 50},
-        {"text": "Oil", "grams": 10},
-        {"text": "Salt", "grams": 3}
+        {
+          "text": "Besan",
+          "grams": 100
+        },
+        {
+          "text": "Onion",
+          "grams": 60,
+          "reference_code": "G017"
+        },
+        {
+          "text": "Tomato",
+          "grams": 50,
+          "reference_code": "D075"
+        },
+        {
+          "text": "Oil",
+          "grams": 10
+        },
+        {
+          "text": "Salt",
+          "grams": 3
+        }
       ],
-      "cooking_notes": ["pan_fried", "added_salt"]
+      "cooking_notes": [
+        "pan_fried",
+        "added_salt"
+      ]
     },
-    "source": {"provider": "synthetic demo template", "reference": "demo-recipe-besan-chilla", "dataset_id": "demo-recipes"},
+    "source": {
+      "provider": "synthetic demo template",
+      "reference": "demo-recipe-besan-chilla",
+      "dataset_id": "demo-recipes"
+    },
     "review_status": "validated"
   },
   {
@@ -38,16 +94,46 @@
     "name": "Vegetable pulao (demo template)",
     "raw": {
       "ingredients": [
-        {"text": "Rice, raw, brown", "reference_code": "A013", "grams": 150},
-        {"text": "Peas", "grams": 60},
-        {"text": "Carrot", "grams": 60},
-        {"text": "Ghee", "grams": 15},
-        {"text": "Salt", "grams": 4},
-        {"text": "Cashew nuts", "grams": 20}
+        {
+          "text": "Rice, raw, milled",
+          "reference_code": "A015",
+          "grams": 150
+        },
+        {
+          "text": "Peas, fresh",
+          "grams": 60,
+          "reference_code": "D061"
+        },
+        {
+          "text": "Carrot, orange",
+          "grams": 60,
+          "reference_code": "F002"
+        },
+        {
+          "text": "Ghee",
+          "grams": 15,
+          "reference_code": "T013"
+        },
+        {
+          "text": "Salt",
+          "grams": 4
+        },
+        {
+          "text": "Cashew nuts",
+          "grams": 20,
+          "reference_code": "H005"
+        }
       ],
-      "cooking_notes": ["added_salt", "packaged_sauce"]
+      "cooking_notes": [
+        "added_salt",
+        "packaged_sauce"
+      ]
     },
-    "source": {"provider": "synthetic demo template", "reference": "demo-recipe-veg-pulao", "dataset_id": "demo-recipes"},
+    "source": {
+      "provider": "synthetic demo template",
+      "reference": "demo-recipe-veg-pulao",
+      "dataset_id": "demo-recipes"
+    },
     "review_status": "validated"
   }
 ]

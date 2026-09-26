@@ -23,6 +23,7 @@ from app.security import current_user
 from app.services.assessment import assess
 from app.services.provenance import product_provenance
 from app.services.recommendations import select_replacements
+from app.services.result_history import normalize_assessment_payload, normalize_result
 
 router = APIRouter(prefix="/api", tags=["assessments and replacements"])
 
@@ -54,7 +55,7 @@ def assessment_response(record: Assessment):
         "profile_version": record.profile_version,
         "profile_snapshot": record.profile_snapshot,
         "food": record.food_snapshot,
-        "result": record.result,
+        "result": normalize_result(record.result),
         "created_at": record.created_at.isoformat(),
     }
 
@@ -237,4 +238,8 @@ def recommendation_detail(
     )
     if record is None:
         raise HTTPException(404, "Recommendation not found")
-    return {"id": record.id, "assessment_id": record.assessment_id, **record.result}
+    return {
+        "id": record.id,
+        "assessment_id": record.assessment_id,
+        **normalize_assessment_payload(record.result),
+    }

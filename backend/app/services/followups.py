@@ -61,16 +61,12 @@ def build_followups(result: dict, food: dict) -> list[dict]:
         collect("review_recorded_conflict", explicit_conflicts)
 
     ingredient_findings = [
-        item
-        for item in unresolved
-        if item.get("code") == "ingredients_not_confirmed"
+        item for item in unresolved if item.get("code") == "ingredients_not_confirmed"
     ]
     if ingredient_findings:
         collect("confirm_ingredients", ingredient_findings)
 
-    compound_findings = [
-        item for item in unresolved if item.get("code") == "ambiguous_ingredients"
-    ]
+    compound_findings = [item for item in unresolved if item.get("code") == "ambiguous_ingredients"]
     if compound_findings:
         collect("clarify_compound_ingredients", compound_findings)
 
@@ -114,9 +110,7 @@ def build_followups(result: dict, food: dict) -> list[dict]:
         if fields:
             collect("capture_nutrition_values", nutrient_findings)
 
-    portion_findings = [
-        item for item in unresolved if item.get("code") == "portion_missing"
-    ]
+    portion_findings = [item for item in unresolved if item.get("code") == "portion_missing"]
     if portion_findings:
         collect("enter_portion", portion_findings)
 
@@ -242,10 +236,7 @@ async def select_followup(cards: list[dict], models) -> dict:
             response = await models.client.post(
                 "https://api.typesafe.ai/v1/systemone",
                 timeout=5,
-                headers={
-                    "Authorization": "Bearer "
-                    + settings.typesafe_api_key.get_secret_value()
-                },
+                headers={"Authorization": "Bearer " + settings.typesafe_api_key.get_secret_value()},
                 json=payload,
             )
             response.raise_for_status()

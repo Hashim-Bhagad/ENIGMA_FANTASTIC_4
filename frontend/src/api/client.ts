@@ -92,7 +92,17 @@ export type DishPayload = {
 };
 export type DishMatch = { input_text: string; code: string; name: string; basis: string | null; grams: number | null; matched_by: string };
 export type DishUnmatched = { input_text: string; reason: string };
-export type DishEstimate = { available: boolean; basis: string | null; nutrients: Partial<Record<Nutrient, number | null>>; total_grams: number | null; assumptions: string[] };
+/** One ingredient the estimate had to leave out, and why. */
+export type DishEstimateExclusion = { input_text: string; reason: string };
+/**
+ * A partial estimate is a floor, not the whole dish: it covers only the ingredients that are
+ * both matched to a reference and weighed, and `excluded` names everything left out.
+ */
+export type DishEstimate = {
+  available: boolean; basis: string | null; nutrients: Partial<Record<Nutrient, number | null>>;
+  total_grams: number | null; assumptions: string[]; matched_count: number; matched_grams: number | null;
+  excluded: DishEstimateExclusion[]; coverage_note: string;
+};
 export type DishAssessment = {
   id: string;
   dish: { name: string; matches: DishMatch[]; unmatched: DishUnmatched[]; estimate: DishEstimate };
@@ -124,6 +134,32 @@ export function dishStatusExplanation(status: AssessmentStatus): string {
   if (status === 'recorded_conflict') return 'At least one ingredient matched a restriction recorded in your profile, so this meal fails a recorded check.';
   if (status === 'needs_information') return 'A required check could not complete with the information available, so this result is inconclusive.';
   return 'Every supported check ran on the available ingredient declarations and found no match with your recorded restrictions. This is not an overall safety verdict.';
+}
+
+/** The floor warning a partial estimate always carries: left-out ingredients can only add nutrients. */
+export const PARTIAL_ESTIMATE_FLOOR_NOTE = 'This is a floor, not the whole dish: the left-out ingredients are not counted, so the nutrients they carry are understated.';
+
+/** How much of the dish an estimate actually covers, in one line. */
+export function estimateCoverageLine(estimate: DishEstimate): string {
+  if (!estimate.available) return 'No nutrient estimate yet: no ingredient is both matched to a reference and weighed in grams.';
+  const grams = estimate.matched_grams == null ? '' : ` · ${estimate.matched_grams} g counted`;
+  return `Estimated from ${estimate.matched_count} weighed ingredient${estimate.matched_count === 1 ? '' : 's'}${grams}`;
+}
+
+/** The first ingredient row holding this typed wording, matched the way the backend matches it. */
+export function ingredientRowKeyFor<T extends { key: string; text: string }>(rows: T[], inputText: string): string | null {
+  const target = inputText.trim().toLowerCase();
+  return rows.find(row => row.text.trim().toLowerCase() === target)?.key ?? null;
+}
+
+/**
+ * Attach a chosen reference code to the first row holding this typed wording and leave every
+ * other row untouched, so a suggestion from the result view lands on the ingredient it came from.
+ */
+export function attachReferenceToRows<T extends { key: string; text: string; referenceCode: string | null }>(rows: T[], inputText: string, code: string): T[] {
+  const key = ingredientRowKeyFor(rows, inputText);
+  if (key === null) return rows;
+  return rows.map(row => row.key === key ? { ...row, referenceCode: code } : row);
 }
 export type CatalogResponse = { products: { id: string; food: FoodObservation; updated_at: string }[]; query_type?: string; live_requested?: boolean; live_status?: string; message?: string; skipped_records?: number };
 export type Recipe = { id: string; name: string; ingredients: DishIngredient[]; source: Record<string, unknown>; review_status: string; warnings: string[] };
@@ -174,14 +210,30 @@ export type IntakeEvidence = {
   parameter_key?: string | null; value?: number | null; unit?: string | null;
   reference_low?: number | null; reference_high?: number | null; report_id?: string | null;
 };
+/** The same number in the units people cook with (grams of salt, teaspoons of sugar). */
+export type IntakeEquivalent = { label: string; value: number; unit: string };
+export type AvoidSeverity = 'avoid' | 'limit' | 'ask';
+/** One concrete thing to avoid or limit, with the reason it is listed and what it links to. */
+export type AvoidItem = { label: string; examples: string[]; reason: string; linked_nutrients: string[] };
+/** A severity-bucketed group of avoid/limit/ask entries with the evidence that triggered it. */
+export type AvoidGroup = {
+  id: string; title: string; detail: string; severity: AvoidSeverity; items: AvoidItem[];
+  confidence: GuidanceConfidence; sources: string[]; evidence: IntakeEvidence[];
+};
 export type IntakeTarget = {
   nutrient: string; label: string; unit: string; baseline_value?: number | null; baseline_source: string;
   proposed_value?: number | null; direction: 'lower' | 'higher' | 'maintain'; rule_id: string; basis: string;
   confidence: GuidanceConfidence; requires_clinician: boolean; evidence: IntakeEvidence[];
   questions: string[]; limit_scope: 'daily' | 'portion'; suggested_limit_source?: string | null;
+  /** The same number in cooking units, e.g. "1500 mg sodium ≈ 3.8 g salt". */
+  display_value?: string | null; equivalents: IntakeEquivalent[];
+  /** The arithmetic in one sentence, so the number is never unexplained. */
+  derivation?: string | null;
+  /** The raw confirmed lab values behind this target, with units and reference ranges. */
+  measured: IntakeEvidence[];
 };
 export type IntakePlan = {
-  version: string; targets: IntakeTarget[]; conditions: ConditionInfo[]; unrecognised_conditions: string[];
+  version: string; targets: IntakeTarget[]; avoid: AvoidGroup[]; conditions: ConditionInfo[]; unrecognised_conditions: string[];
   reports_used: string[]; notes: string[]; coverage: string;
 };
 
@@ -226,6 +278,46 @@ export function formatEvidence(evidence: IntakeEvidence): string {
 export function evidenceReportLabel(evidence: IntakeEvidence): string | null {
   if (evidence.kind !== 'lab' || !evidence.report_id) return null;
   return `Report ${evidence.report_id.slice(0, 8)}`;
+}
+
+/** One measured value in plain words: your reading, its printed range, and the report behind it. */
+export function formatMeasuredLine(evidence: IntakeEvidence): string {
+  const value = evidence.value == null ? 'value not recorded' : `${evidence.value}${evidence.unit ? ` ${evidence.unit}` : ''}`;
+  const range = formatReferenceRange(evidence.reference_low, evidence.reference_high);
+  const report = evidenceReportLabel(evidence);
+  const head = `your ${evidence.label}: ${value} (range ${range})`;
+  return report ? `${head} · ${report}` : head;
+}
+
+/** One human-scale equivalent of the same number, e.g. "Salt: 3.8 g". */
+export function formatEquivalent(equivalent: IntakeEquivalent): string {
+  const amount = `${equivalent.value}${equivalent.unit ? ` ${equivalent.unit}` : ''}`;
+  return equivalent.label ? `${equivalent.label}: ${amount}` : amount;
+}
+
+export function avoidSeverityLabel(severity: AvoidSeverity): string {
+  if (severity === 'avoid') return 'AVOID';
+  return severity === 'ask' ? 'ASK YOUR CLINICIAN' : 'LIMIT';
+}
+
+export function avoidSeverityTone(severity: AvoidSeverity): 'red' | 'amber' | 'blue' {
+  if (severity === 'avoid') return 'red';
+  return severity === 'ask' ? 'blue' : 'amber';
+}
+
+/** What is proposed for one nutrient, and who has to decide when nothing can be proposed. */
+export function intakeProposedLine(target: IntakeTarget): string {
+  if (target.proposed_value == null) {
+    return target.requires_clinician ? 'No value is proposed here: a clinician needs to set this one.' : 'No change is proposed for this nutrient.';
+  }
+  const value = `${target.proposed_value}${target.unit ? ` ${target.unit}` : ''}`;
+  return target.direction === 'lower' ? `Proposed daily limit: at most ${value}` : target.direction === 'higher' ? `Proposed target: at least ${value}` : `Proposed target: keep near ${value}`;
+}
+
+/** What is already recorded as the starting point, and where that number came from. */
+export function intakeBaselineLine(target: IntakeTarget): string {
+  if (target.baseline_value == null) return `No recorded baseline · ${target.baseline_source}`;
+  return `Recorded baseline: ${target.baseline_value}${target.unit ? ` ${target.unit}` : ''} · ${target.baseline_source}`;
 }
 
 export function parameterStatusTone(status: ParameterStatus | undefined): 'red' | 'green' | 'amber' | 'neutral' {

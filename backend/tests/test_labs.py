@@ -32,16 +32,16 @@ ALIAS_CASES = [
     ("Haemoglobin", "hemoglobin_g_dl"),
 ]
 
-# (from unit, to unit, printed value, expected canonical value, tolerance).
+# (canonical key, from unit, to unit, printed value, expected value, tolerance).
 CONVERSION_CASES = [
-    ("mg/dL", "mmol/L", 90.0, 4.995, 1e-3),
-    ("mg/dL", "mmol/L", 200.0, 5.172, 1e-3),
-    ("mg/dL", "mmol/L", 150.0, 1.6936, 1e-3),
-    ("mg/dL", "umol/L", 1.0, 88.4, 1e-3),
-    ("g/dL", "g/L", 14.0, 140.0, 1e-6),
-    ("ng/mL", "nmol/L", 30.0, 75.0, 1e-6),
-    ("pg/mL", "pmol/L", 500.0, 369.004, 1e-3),
-    ("mg/dL", "umol/L", 5.0, 297.62, 1e-3),
+    ("fasting_glucose_mg_dl", "mg/dL", "mmol/L", 90.0, 4.995, 1e-3),
+    ("total_cholesterol_mg_dl", "mg/dL", "mmol/L", 200.0, 5.172, 1e-3),
+    ("triglycerides_mg_dl", "mg/dL", "mmol/L", 150.0, 1.6936, 1e-3),
+    ("creatinine_mg_dl", "mg/dL", "umol/L", 1.0, 88.4, 1e-3),
+    ("hemoglobin_g_dl", "g/dL", "g/L", 14.0, 140.0, 1e-6),
+    ("vitamin_d_ng_ml", "ng/mL", "nmol/L", 30.0, 75.0, 1e-6),
+    ("vitamin_b12_pg_ml", "pg/mL", "pmol/L", 500.0, 369.004, 1e-3),
+    ("uric_acid_mg_dl", "mg/dL", "umol/L", 5.0, 297.62, 1e-3),
 ]
 
 
@@ -69,17 +69,37 @@ def test_unknown_names_and_empty_input_stay_unrecognised():
     assert canonicalise(None) is None
 
 
-@pytest.mark.parametrize(("unit", "target", "value", "expected", "tolerance"), CONVERSION_CASES)
-def test_each_conversion_pair_converts_and_round_trips(unit, target, value, expected, tolerance):
-    converted = convert(value, unit, target)
+@pytest.mark.parametrize(
+    ("key", "unit", "target", "value", "expected", "tolerance"), CONVERSION_CASES
+)
+def test_each_conversion_pair_converts_and_round_trips(
+    key, unit, target, value, expected, tolerance
+):
+    converted = convert(value, unit, target, key)
     assert converted == pytest.approx(expected, rel=tolerance)
-    assert convert(converted, target, unit) == pytest.approx(value, rel=1e-6)
+    assert convert(converted, target, unit, key) == pytest.approx(value, rel=1e-6)
+
+
+def test_the_same_unit_pair_never_borrows_another_analytes_factors():
+    # mg/dL and mmol/L belong to glucose, cholesterol and triglycerides at once, so the
+    # key decides: 200 mg/dL of cholesterol is 5.17 mmol/L, not the glucose result.
+    assert convert(200.0, "mg/dL", "mmol/L", "total_cholesterol_mg_dl") == pytest.approx(
+        5.172, rel=1e-3
+    )
+    assert convert(200.0, "mg/dL", "mmol/L", "fasting_glucose_mg_dl") == pytest.approx(
+        11.0999, rel=1e-3
+    )
+    # An ambiguous pair with no key is refused rather than guessed.
+    assert convert(200.0, "mg/dL", "mmol/L") is None
+    # A pair that occurs in exactly one group is still usable without a key.
+    assert convert(140.0, "g/L", "g/dL") == pytest.approx(14.0)
+    assert convert(5.0, "mg/dL", "mmol/L", "hemoglobin_g_dl") is None
 
 
 def test_unrelated_or_missing_units_are_never_converted():
-    assert convert(5.0, "mg/dL", "ng/mL") is None
-    assert convert(5.0, "furlongs", "mg/dL") is None
-    assert convert(None, "mg/dL", "mmol/L") is None
+    assert convert(5.0, "mg/dL", "ng/mL", "creatinine_mg_dl") is None
+    assert convert(5.0, "furlongs", "mg/dL", "creatinine_mg_dl") is None
+    assert convert(None, "mg/dL", "mmol/L", "creatinine_mg_dl") is None
 
 
 def test_build_parameters_converts_units_and_moves_the_printed_range_with_the_value():
@@ -123,12 +143,24 @@ def test_implausible_value_is_quarantined_with_a_warning_and_no_verdict():
 def test_duplicate_reading_keeps_the_first_and_explains_the_drop():
     parameters, warnings = build_parameters(
         [
-            {"key": "tsh_miu_l", "label": "Thyroid stimulating hormone", "value": 2.0, "unit": "mIU/L"},
-            {"key": "tsh_miu_l", "label": "Thyroid stimulating hormone", "value": 3.0, "unit": "mIU/L"},
+            {
+                "key": "tsh_miu_l",
+                "label": "Thyroid stimulating hormone",
+                "value": 2.0,
+                "unit": "mIU/L",
+            },
+            {
+                "key": "tsh_miu_l",
+                "label": "Thyroid stimulating hormone",
+                "value": 3.0,
+                "unit": "mIU/L",
+            },
         ]
     )
     assert [item.value for item in parameters] == [2.0]
-    assert warnings == ["Thyroid stimulating hormone appeared more than once; only the first reading was kept."]
+    assert warnings == [
+        "Thyroid stimulating hormone appeared more than once; only the first reading was kept."
+    ]
 
 
 def test_document_range_wins_over_the_standard_range():

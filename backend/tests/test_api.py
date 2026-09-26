@@ -10,6 +10,7 @@ from app import rate_limit as rate_limit_module
 from app.catalog import store_product
 from app.config import Settings, get_settings
 from app.integrations.off import ProviderError
+from app.models import Assessment
 from app.schemas import FoodObservation
 from tests.conftest import signup
 
@@ -481,3 +482,54 @@ def test_request_body_cap_returns_413(client):
     )
     assert response.status_code == 413, response.text
     assert response.json()["code"] == "payload_too_large"
+
+
+def test_legacy_assessment_rows_are_served_through_the_current_contract(client, db_engine):
+    """Records written before findings had codes must not 500 the history endpoint."""
+    headers = signup(client)
+    profile = client.put("/api/profiles/me", headers=headers, json={"data": {}}).json()
+    owner_id = client.get("/api/auth/me", headers=headers).json()["id"]
+    legacy_result = {
+        # The pre-contract shape: no status_reason, findings without code/title/detail.
+        "rule_version": "prototype-2026-09-26.4",
+        "ingredient_taxonomy_version": "ingredient-terms-2026-09-26.5",
+        "status": "needs_information",
+        "conflicts": [],
+        "unresolved": [{"field": "ingredients", "message": "Old wording without a code."}],
+        "considerations": [],
+        "ingredient_findings": [],
+        "source_warnings": [],
+        "coverage": "Old coverage sentence.",
+    }
+    with db_engine.begin() as connection:
+        connection.execute(
+            Assessment.__table__.insert(),
+            [
+                {
+                    "id": "legacy-1",
+                    "owner_id": owner_id,
+                    "profile_id": profile["id"],
+                    "profile_version": profile["version"],
+                    "profile_snapshot": profile["data"],
+                    "food_snapshot": {
+                        "name": "Legacy snack",
+                        "source": {"kind": "demo", "reference": "x"},
+                    },
+                    "result": legacy_result,
+                }
+            ],
+        )
+
+    history = client.get("/api/assessments", headers=headers)
+    assert history.status_code == 200, history.text
+    stored = next(item for item in history.json()["assessments"] if item["id"] == "legacy-1")
+    assert stored["result"]["status_reason"], "a legacy result needs a stated reason"
+    finding = stored["result"]["unresolved"][0]
+    assert finding["code"] == "legacy_field" or finding["code"].startswith("legacy_")
+    assert finding["group"] == "unresolved"
+    assert finding["title"] and finding["detail"]
+    assert finding["message"] == "Old wording without a code.", "the stored wording is unchanged"
+
+    detail = client.get("/api/assessments/legacy-1", headers=headers)
+    assert detail.status_code == 200
+    assert detail.json()["result"]["unresolved"][0]["group"] == "unresolved"
