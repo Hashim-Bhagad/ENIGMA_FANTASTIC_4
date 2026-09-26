@@ -1,16 +1,18 @@
+import io
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
 import jwt
-from sqlalchemy import text
+from PIL import Image
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app import rate_limit as rate_limit_module
 from app.catalog import store_product
 from app.config import Settings, get_settings
 from app.integrations.off import ProviderError
-from app.models import Assessment
+from app.models import Assessment, Product
 from app.schemas import FoodObservation
 from tests.conftest import signup
 
@@ -533,3 +535,99 @@ def test_legacy_assessment_rows_are_served_through_the_current_contract(client, 
     detail = client.get("/api/assessments/legacy-1", headers=headers)
     assert detail.status_code == 200
     assert detail.json()["result"]["unresolved"][0]["group"] == "unresolved"
+
+
+class _FakeExtractor:
+    """Stand-in for the vision adapter: returns a fixed observation, no provider call."""
+
+    def __init__(self, food=None):
+        self.food = food
+
+    async def extract_label(self, content, mime_type):
+        from app.schemas import FoodObservation
+
+        return FoodObservation.model_validate(
+            self.food
+            or {
+                "name": "Model guessed name",
+                "basis": "100g",
+                "ingredients_text": "Refined wheat flour (maida), sugar, milk solids, salt",
+                "advisories_text": "May contain peanuts",
+                "nutrients": {"sodium_mg": 780, "sugars_g": 9.4},
+                "source": {"kind": "label_extraction", "reference": "Photo of the pack"},
+            }
+        )
+
+
+def _label_photo():
+    image = io.BytesIO()
+    Image.new("RGB", (12, 12)).save(image, format="PNG")
+    return image.getvalue()
+
+
+def test_label_fallback_attaches_the_barcode_and_saves_the_pack(client, db_engine):
+    """The documented fallback: no catalog record → photograph the pack → it is findable by barcode."""
+    headers = signup(client)
+    client.app.state.models = _FakeExtractor()
+
+    response = client.post(
+        "/api/labels/extract",
+        headers=headers,
+        files={"file": ("label.png", _label_photo(), "image/png")},
+        data={"barcode": "8901234567890", "name": "NUTRI-CRUNCH CRACKERS"},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["saved"] is True and body["product_id"]
+    assert body["food"]["barcode"] == "8901234567890"
+    # A user-supplied name wins over the model's guess; the extracted evidence is untouched.
+    assert body["food"]["name"] == "NUTRI-CRUNCH CRACKERS"
+    assert "maida" in body["food"]["ingredients_text"]
+
+    lookup = client.get("/api/products/barcode/8901234567890", headers=headers)
+    assert lookup.status_code == 200, lookup.text
+    stored = lookup.json()
+    assert stored["lookup_source"] == "saved_snapshot"
+    assert stored["food"]["source"]["kind"] == "label_extraction"
+    assert stored["food"]["nutrients"]["sodium_mg"] == 780
+
+    # Re-uploading the same photo updates one record instead of duplicating it.
+    again = client.post(
+        "/api/labels/extract",
+        headers=headers,
+        files={"file": ("label.png", _label_photo(), "image/png")},
+        data={"barcode": "8901234567890"},
+    )
+    assert again.status_code == 200
+    with Session(db_engine) as session:
+        rows = session.scalars(select(Product).where(Product.barcode == "8901234567890")).all()
+    assert len(rows) == 1, "the same photo must not create a second catalog row"
+
+
+def test_label_fallback_rejects_a_malformed_barcode_and_never_saves(client, db_engine):
+    headers = signup(client)
+    client.app.state.models = _FakeExtractor()
+    response = client.post(
+        "/api/labels/extract",
+        headers=headers,
+        files={"file": ("label.png", _label_photo(), "image/png")},
+        data={"barcode": "12345"},
+    )
+    assert response.status_code == 422
+    assert response.json()["code"] == "validation_error"
+    with Session(db_engine) as session:
+        assert session.scalars(select(Product)).all() == []
+
+
+def test_label_extraction_without_a_barcode_stays_unsaved(client):
+    headers = signup(client)
+    client.app.state.models = _FakeExtractor()
+    response = client.post(
+        "/api/labels/extract",
+        headers=headers,
+        files={"file": ("label.png", _label_photo(), "image/png")},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["saved"] is False and body["product_id"] is None
+    assert body["food"]["barcode"] is None
