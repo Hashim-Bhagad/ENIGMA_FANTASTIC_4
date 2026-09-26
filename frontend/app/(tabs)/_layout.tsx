@@ -17,6 +17,7 @@ export default function TabLayout() {
       tabBarStyle: { height: 72, paddingTop: 8, paddingBottom: 7, backgroundColor: '#FFFFFF', borderTopWidth: 0, elevation: 10, shadowColor: '#3525A8', shadowOpacity: 0.08, shadowRadius: 18 },
       tabBarIcon: ({ color, size }) => <MaterialCommunityIcons name={icons[route.name] ?? 'circle-outline'} color={color} size={size} />,
       tabBarLabel: labels[route.name] ?? route.name,
+      tabBarAccessibilityLabel: labels[route.name] ?? route.name,
     })}>
       <Tabs.Screen name="guide" />
       <Tabs.Screen name="scan" />

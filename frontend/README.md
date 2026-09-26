@@ -1,29 +1,67 @@
 # SafeBitez frontend
 
-Shared mobile and web UI built with Expo, React Native, TypeScript, and Expo Router. It follows the SafeBitez design references and the frontend stack described in the planning notes.
+Expo Router and React Native client for the FastAPI service in `../backend`. The mobile app and Expo web build share the same API client, account, profile, product, label, assessment, recommendation, and history flows.
 
-## Run
+## Run the backend
+
+From the repository root, configure `backend/.env` from `backend/.env.example` and set the PostgreSQL password, a random JWT secret, and any provider keys you plan to use. Start PostgreSQL and the API:
 
 ```sh
+docker compose --env-file backend/.env up --build -d
+```
+
+Run that command from the repository root. If your terminal is already in `backend/`, use:
+
+```sh
+docker compose --env-file .env -f ../compose.yaml up --build -d
+```
+
+Check `http://localhost:8000/health/ready` and open `http://localhost:8000/docs` for the API explorer. To load clearly marked synthetic products for a local demo, run `uv --directory backend run python -m app.importers demo` from the repository root.
+
+## Run the app
+
+```sh
+cd frontend
 npm install
+cp .env.example .env
 npm run start
 ```
 
-Use `npm run web` for the browser build. Expo Camera provides barcode scanning on supported devices. Mobile label photos use the camera; the web flow selects an image file.
+Use `npm run web` for the browser, or start an Android/iOS development build. The default API URL is `http://localhost:8000` on web and iOS simulator and `http://10.0.2.2:8000` on the Android emulator. For a physical phone, set `EXPO_PUBLIC_API_URL` in `frontend/.env` to the computer's reachable LAN address, such as `http://192.168.1.20:8000`. Keep the phone and computer on the same network and allow the API port through the computer firewall.
 
-## Pages
+Expo embeds `EXPO_PUBLIC_*` variables in the client bundle. Put only the backend's public base URL there, never database passwords, JWT signing secrets, or provider keys. The app stores the native access token with Expo SecureStore and uses browser local storage for the Expo web session.
 
-- **Guide** — recorded profile summary and entry points into the check flows.
-- **Scan** — barcode scan, manual barcode entry, and product search.
-- **Review** — editable label observations before an assessment.
-- **Assessment** — separate declared matches, advisory statements, considerations, and unknown information.
-- **Replacements** — same-category comparison examples with incomplete-data limits shown.
-- **Dish check** — questions for a restaurant or buffet preparer.
-- **History** — recent and saved assessment examples.
-- **Profile** — allergies, explicit limits, and preferences.
+## Connected journeys
 
-The tab bar keeps the four frequent destinations (Guide, Scan, History, Profile). Review, Assessment, Replacements, and Dish check appear only in their relevant task flows.
+- Create an account or sign in; load and save a backend-owned profile.
+- Search product names/brands, scan a barcode with Expo Camera, or enter it manually.
+- Upload a label photograph to the authenticated Fireworks extraction endpoint; review and correct the returned observations.
+- Confirm the package declarations, submit an assessment using the current profile version, and render its findings.
+- Review all ten supported nutrients, open the source record, and expand the raw-field/unit-conversion trace. Missing values stay unknown; changing the measurement basis clears the amounts for re-entry.
+- Request eligible same-category replacements and reopen server-persisted assessment history.
 
-## Frontend-only boundary
+Live product data can have missing fields and unverified source declarations. Label extraction requires user review. Recommendation results reflect only the candidate data and restrictions available in the backend catalog.
 
-There is no backend, authentication service, catalog, OCR, or assessment engine in this repository. Product records and assessment findings in `src/data/demo.ts` are invented UI fixtures. They are labeled as illustrative; attached label photos are previewed locally and are not uploaded or read. Edited label text is saved only in app memory and does not produce a suitability result. Replacements are category examples, not approved recommendations. Profile and saved-state controls are local preview interactions and do not persist across reloads.
+## Replacement tiers
+
+Replacement results are shown as two clearly separated sections. **Verified candidates** passed the backend eligibility and verification checks. **Unverified candidates (confirm the label first)** failed a required verification step, and each row lists its `review_reasons`; the section carries a warning banner because a listed candidate is not a statement that it is safe. Confirm the current package and label before relying on any candidate.
+
+## Cooked meals
+
+`Check a cooked meal` (available from the scan tab, the assessment screen and `/dish`) submits a real ingredient list rather than a shown dish name:
+
+- A dish name.
+- Ingredient rows. Each row can search the IFCT reference foods (`GET /api/reference-foods?q=`) and pick one, or stay free text, plus optional grams.
+- Cooking-note chips loaded from `GET /api/dishes/options`.
+- A confirmation that every ingredient is listed and the dish has no packaged advisory panel.
+- An optional portion size.
+
+`POST /api/dishes/assess` returns ingredient matches, unmatched ingredients and an estimate the backend only produces when every ingredient has both a matched reference food and a gram amount; otherwise the estimate stays unavailable and its assumptions are shown. The assessment findings use the same renderer as the packaged-product assessment, so the status reason, `title`/`detail`/`next_step`/`affects` and collapsible `evidence` are read the same way. Nothing you do not list is inferred.
+
+## Error handling
+
+Every request has an `AbortController` timeout (15 seconds; 60 seconds for label extraction). A timeout surfaces as “The server did not respond in time.” rather than hanging. Error responses keep FastAPI's `detail` and add a stable `code`; the client reads both, joining a validation array into one message. Codes are `validation_error`, `unauthorized`, `forbidden`, `not_found`, `conflict`, `rate_limited`, `payload_too_large`, `unsupported_media_type`, `provider_unavailable`, `internal_error`, plus the frontend-origin `timeout` and `network` codes and the `profile_version_stale` conflict used to recover a stale profile save. Any `401` clears the stored token and routes the app back to the signed-out state.
+
+## Local testing
+
+`npm run typecheck` runs the TypeScript type checker and `npm run test` runs the Vitest suite (transport error normalisation, timeout aborting, base-URL resolution and the web localStorage session branch). The FastAPI service has its own dependencies and commands in `../backend/README.md`.

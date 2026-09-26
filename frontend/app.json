@@ -9,7 +9,8 @@
     "plugins": [
       "expo-router",
       ["expo-camera", { "cameraPermission": "Allow SafeBitez to scan product barcodes.", "recordAudioAndroid": false }],
-      ["expo-image-picker", { "photosPermission": "Choose a photo of a food label to review.", "cameraPermission": "Take a photo of a food label to review.", "microphonePermission": false }]
+      ["expo-image-picker", { "photosPermission": "Choose a photo of a food label to review.", "cameraPermission": "Take a photo of a food label to review.", "microphonePermission": false }],
+      "expo-secure-store"
     ],
     "experiments": { "typedRoutes": true },
     "web": { "bundler": "metro", "name": "SafeBitez" }
