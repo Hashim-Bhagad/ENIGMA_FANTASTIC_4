@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { Allergen, api, ApiError, Assessment, DishAssessment, DishPayload, EU_ALLERGENS, FoodObservation, IntakeTarget, isNutrient, ProfilesGuide, ProfileData, Recommendation, SavedProfile, setUnauthorizedHandler, toProduct, type LabelExtractionMeta, type Product } from '@/src/api/client';
+import { Allergen, api, ApiError, Assessment, DishAssessment, DishPayload, EU_ALLERGENS, FoodObservation, IntakeTarget, isNutrient, ProfilesGuide, ProfileData, Recommendation, SavedProfile, setUnauthorizedHandler, toProduct, type LabelExtractionMeta, type Photo, type Product } from '@/src/api/client';
 import { session } from '@/src/api/session';
 
 export type AuthState = 'loading' | 'signed-out' | 'profile-missing' | 'ready' | 'session-error';
@@ -27,7 +27,7 @@ type AppContextValue = {
   search: string; setSearch: (value: string) => void; catalogMessage: string; loadCatalog: () => Promise<void>; searchCatalog: (query: string) => Promise<Product[]>; lookupBarcode: (barcode: string) => Promise<Product>;
   allergens: string[]; toggleAllergen: (value: string) => void; conditions: string[]; toggleCondition: (value: string) => void;
   labelPhoto: string | null; setLabelPhoto: (uri: string | null) => void; sodiumLimit: string; setSodiumLimit: (value: string) => void;
-  extractLabel: (photo: { uri: string; name?: string | null; mimeType?: string | null }, meta?: LabelExtractionMeta) => Promise<LabelExtractionOutcome>;
+  extractLabel: (photo: Photo, meta?: LabelExtractionMeta) => Promise<LabelExtractionOutcome>;
   assessment: Assessment | null; createAssessment: (portion: number | null, food?: FoodObservation) => Promise<Assessment>;
   recommendation: Recommendation | null; getRecommendations: () => Promise<Recommendation>;
   history: Assessment[]; historyTotal: number; hasMoreHistory: boolean; loadHistory: () => Promise<void>; loadMoreHistory: () => Promise<void>; openAssessment: (id: string) => Promise<void>;
@@ -207,7 +207,7 @@ export function AppProvider({ children }: React.PropsWithChildren) {
       catch (cause) { setError(cause instanceof Error ? cause.message : 'Barcode lookup failed.'); throw cause; }
     });
   }, [token, withOperation]);
-  const extractLabel = useCallback(async (photo: { uri: string; name?: string | null; mimeType?: string | null }, meta?: LabelExtractionMeta) => {
+  const extractLabel = useCallback(async (photo: Photo, meta?: LabelExtractionMeta) => {
     if (!token) throw new ApiError('Sign in to extract a label.', 401, 'unauthorized');
     return withOperation('label', async () => {
       setError('');

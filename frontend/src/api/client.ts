@@ -74,7 +74,30 @@ export type Recommendation = {
   ranking_method: string; fallback_reason?: string | null; message: string;
 };
 export type IngredientAlternatives = { alternatives: { ingredient: string; matched_ingredient: string; alternatives: string[]; reason: string; review_required: boolean }[]; catalog_version: string; note: string };
-export type Photo = { uri: string; name?: string | null; mimeType?: string | null };
+export type Photo = {
+  uri: string;
+  name?: string | null;
+  mimeType?: string | null;
+  // Web pickers hand back a File whose object URL can already be revoked, and the blob
+  // request then yields nothing. The base64 payload is read while the file is still open.
+  file?: Blob | null;
+  base64?: string | null;
+};
+
+/** Turn a base64 payload into an uploadable File, or null when it is missing or empty. */
+export function photoFileFromBase64(photo: Photo): File | null {
+  const payload = photo.base64;
+  if (!payload) return null;
+  try {
+    const binary = atob(payload);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+    if (!bytes.length) return null;
+    return new File([bytes], photo.name || 'label.jpg', { type: photo.mimeType || 'image/jpeg' });
+  } catch {
+    return null;
+  }
+}
 
 export type ProfilesGuide = {
   profile_id: string; profile_version: number;
@@ -399,30 +422,46 @@ export type LabelFallbackPrompt = {
   detail: string;
 };
 
+/** The parts of a found catalog record that decide whether its answer is usable at all. */
+export type FoundRecord = { barcode?: string | null; ingredients_text?: string | null };
+
 /**
- * Decide whether a lookup that found nothing should offer the ingredient-list photo.
+ * Decide whether a lookup that produced nothing usable should offer the ingredient-list photo.
  *
- * A missing record (404) and an empty search are what a photo can answer; a connection,
- * sign-in, or server failure is not, so those offer nothing. A barcode the backend rejects
- * still offers the photo, but says plainly that the barcode cannot be attached instead of
- * dropping it silently.
+ * A missing record (404), a record that declares no ingredients, and an empty search are what a
+ * photo can answer; a connection, sign-in, or server failure is not, so those offer nothing. A
+ * barcode the backend rejects still offers the photo, but says plainly that the barcode cannot be
+ * attached instead of dropping it silently.
  */
-export function labelFallbackOffer(input: { barcode?: string | null; query?: string | null; error?: unknown; resultCount?: number }): LabelFallbackPrompt | null {
+export function labelFallbackOffer(input: { barcode?: string | null; query?: string | null; error?: unknown; resultCount?: number; found?: FoundRecord | null }): LabelFallbackPrompt | null {
   const barcode = (input.barcode ?? '').trim();
   const query = (input.query ?? '').trim();
   const failure = input.error;
   const notFound = failure instanceof ApiError && (failure.status === 404 || failure.code === 'not_found');
   const malformed = failure instanceof ApiError && (failure.status === 422 || failure.code === 'validation_error');
-  const emptySearch = failure == null && input.resultCount === 0;
-  if (!notFound && !malformed && !emptySearch) return null;
-  if (malformed && barcode && !isUsableBarcode(barcode)) {
-    return { barcode: null, title: `"${barcode}" is not a usable barcode`, detail: 'A barcode needs 8, 12, 13, or 14 digits, so this one cannot be attached to the photo. The photo is still read and saved as its own record.' };
+  if (notFound || malformed) {
+    if (malformed && barcode && !isUsableBarcode(barcode)) {
+      return { barcode: null, title: `"${barcode}" is not a usable barcode`, detail: 'A barcode needs 8, 12, 13, or 14 digits, so this one cannot be attached to the photo. The photo is still read and saved as its own record.' };
+    }
+    if (barcode && isUsableBarcode(barcode)) {
+      return { barcode, title: `No record for ${barcode}`, detail: `Photograph the ingredient list and review it yourself. The photo is saved against barcode ${barcode}, so the next lookup finds your pack.` };
+    }
+    if (!query) return null;
+    return { barcode: null, title: `No results for "${query}"`, detail: 'Photograph the ingredient list and review it yourself. The photo is saved as its own record, so the next lookup by name finds it.' };
   }
-  if (barcode && isUsableBarcode(barcode)) {
-    return { barcode, title: `No record for ${barcode}`, detail: `Photograph the ingredient list and review it yourself. The photo is saved against barcode ${barcode}, so the next lookup finds your pack.` };
+  const found = input.found;
+  if (found) {
+    // A community record can exist and still carry nothing worth reviewing.
+    if ((found.ingredients_text ?? '').trim()) return null;
+    const code = barcode || (found.barcode ?? '').trim();
+    if (code) return { barcode: code, title: `The record for ${code} has no ingredient declaration`, detail: `Photograph the pack and review it yourself. The photo is saved against barcode ${code}, so the next lookup finds your ingredients.` };
+    if (!query) return null;
+    return { barcode: null, title: `The record for "${query}" has no ingredient declaration`, detail: 'Photograph the pack and review it yourself. The photo is saved as its own record, so the next lookup by name finds it.' };
   }
-  if (!query) return null;
-  return { barcode: null, title: `No results for "${query}"`, detail: 'Photograph the ingredient list and review it yourself. The photo is saved as its own record, so the next lookup by name finds it.' };
+  if (failure == null && input.resultCount === 0 && query) {
+    return { barcode: null, title: `No results for "${query}"`, detail: 'Photograph the ingredient list and review it yourself. The photo is saved as its own record, so the next lookup by name finds it.' };
+  }
+  return null;
 }
 
 /**
@@ -514,7 +553,18 @@ export const api = {
   extractLabel: async (token: string, photo: Photo, meta?: LabelExtractionMeta) => {
     const form = new FormData();
     if (Platform.OS === 'web') {
-      const blob = await (await fetch(photo.uri)).blob();
+      // Prefer the file the picker already handed us: its blob: URL can be revoked before we
+      // fetch it (net::ERR_FILE_NOT_FOUND), which made every web label upload fail. Only fall
+      // back to fetching the URI when no file was supplied.
+      const fromBase64 = photoFileFromBase64(photo);
+      const supplied = fromBase64 ?? (photo.file instanceof Blob && photo.file.size > 0 ? photo.file : null);
+      let blob: Blob;
+      if (supplied) {
+        blob = supplied;
+      } else {
+        blob = await (await fetch(photo.uri)).blob();
+      }
+      if (!blob.size) throw new ApiError('The picked photo could not be read. Choose it again.', undefined, 'network');
       form.append('file', new File([blob], photo.name || 'label.jpg', { type: photo.mimeType || blob.type || 'image/jpeg' }));
     } else {
       form.append('file', { uri: photo.uri, name: photo.name || 'label.jpg', type: photo.mimeType || 'image/jpeg' } as unknown as Blob);
@@ -563,5 +613,17 @@ export function toProduct(id: string, food: FoodObservation): Product {
     barcode: food.barcode || '', ingredients: food.ingredients_text || '', advisory: food.advisories_text || '',
     sodium: food.nutrients.sodium_mg ?? null, basis: food.basis ? `per 100 ${food.basis === '100ml' ? 'ml' : 'g'}` : 'Not supplied',
     observation: food,
+  };
+}
+
+/**
+ * The blank, user-editable pack the manual-entry path opens. No catalog observation is
+ * attached, and the barcode that is already known (typed, or from a failed lookup) is kept
+ * on it so the packed details still answer that barcode later.
+ */
+export function manualProduct(base: Product, barcode: string): Product {
+  return {
+    ...base, id: `manual-${Date.now()}`, brand: 'Your label', name: 'New product', barcode,
+    ingredients: '', advisory: '', sodium: null, basis: 'Not supplied', observation: undefined,
   };
 }

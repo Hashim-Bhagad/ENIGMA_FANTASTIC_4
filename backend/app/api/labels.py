@@ -52,14 +52,23 @@ async def extract(
     content = await file.read(5 * 1024 * 1024 + 1)
     if len(content) > 5 * 1024 * 1024:
         raise HTTPException(413, "Image must be at most 5 MB")
+    if not content:
+        raise HTTPException(422, "The uploaded file was empty; choose the photo again")
     try:
         with Image.open(io.BytesIO(content)) as image:
-            if image.format not in {"JPEG", "PNG"} or image.width * image.height > 20_000_000:
-                raise ValueError("Unsupported image")
-            mime_type = "image/jpeg" if image.format == "JPEG" else "image/png"
+            detected = image.format
+            if detected not in {"JPEG", "PNG"} or image.width * image.height > 20_000_000:
+                raise ValueError(detected or "unknown")
+            mime_type = "image/jpeg" if detected == "JPEG" else "image/png"
             image.verify()
-    except (ValueError, UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
-        raise HTTPException(422, "Upload a readable JPEG or PNG label photo") from exc
+    except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
+        logger.info("label upload rejected bytes=%s reason=%s", len(content), type(exc).__name__)
+        raise HTTPException(
+            422, f"The uploaded file is not a readable JPEG or PNG ({len(content)} bytes)"
+        ) from exc
+    except ValueError as exc:
+        logger.info("label upload rejected bytes=%s format=%s", len(content), exc)
+        raise HTTPException(422, f"Upload a JPEG or PNG label photo (received {exc})") from exc
     try:
         food = await request.app.state.models.extract_label(content, mime_type)
     except ProviderError as exc:

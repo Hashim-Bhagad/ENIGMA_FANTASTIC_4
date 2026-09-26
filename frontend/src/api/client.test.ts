@@ -4,9 +4,9 @@ import {
   DISH_DRAFT_ACTION, DISH_DRAFT_BANNER, dishStatusExplanation, draftIngredientRows, estimateCoverageLine, EU_ALLERGENS,
   evidenceReportLabel, formatEquivalent, formatEvidence,
   formatMeasuredLine, formatReferenceRange, ingredientRowKeyFor, intakeBaselineLine, intakeProposedLine, isNutrient,
-  isUsableBarcode, labelExtractionMessage, labelFallbackOffer,
+  isUsableBarcode, labelExtractionMessage, labelFallbackOffer, manualProduct,
   parameterStatusTone, PARTIAL_ESTIMATE_FLOOR_NOTE, referenceSuggestionLabel, TYPE_AHEAD_DELAY_MS,
-  TYPE_AHEAD_MIN_CHARS, typeAheadTerm, type DishDraftResponse, type IntakeTarget,
+  TYPE_AHEAD_MIN_CHARS, typeAheadTerm, type DishDraftResponse, type IntakeTarget, type Product,
 } from './client';
 
 // The client and the session module import native modules; stubbing them keeps the
@@ -283,6 +283,38 @@ describe('guided label fallback contract', () => {
   it('accepts only the printed digit counts as a usable barcode', () => {
     expect([isUsableBarcode('12345678'), isUsableBarcode('890123456789'), isUsableBarcode('8901234567890'), isUsableBarcode('12345678901234'), isUsableBarcode(' 8901234567890 ')]).toEqual([true, true, true, true, true]);
     expect([isUsableBarcode('1234567'), isUsableBarcode('123456789012345'), isUsableBarcode('890123456789a'), isUsableBarcode('')]).toEqual([false, false, false, false]);
+  });
+
+  it('treats a resolved record that declares no ingredients as no result', () => {
+    const useless = labelFallbackOffer({ barcode: '8901234567890', found: { barcode: '8901234567890', ingredients_text: '   ' } });
+    expect(useless?.barcode).toBe('8901234567890');
+    expect(useless?.title).toBe('The record for 8901234567890 has no ingredient declaration');
+    expect(useless?.detail).toMatch(/photograph the pack and review it yourself/i);
+    expect(useless?.detail).toContain('saved against barcode 8901234567890');
+    expect(labelFallbackOffer({ barcode: '8901234567890', found: { ingredients_text: null } })?.title).toBe('The record for 8901234567890 has no ingredient declaration');
+    // A record with an ingredient declaration is usable, so nothing is offered for it.
+    expect(labelFallbackOffer({ barcode: '8901234567890', found: { ingredients_text: 'ragi flour, rice flour, salt' } })).toBeNull();
+    // The barcode on the record is used when the caller has none, and a name search is named instead.
+    expect(labelFallbackOffer({ found: { barcode: '12345678', ingredients_text: ' ' } })?.barcode).toBe('12345678');
+    expect(labelFallbackOffer({ query: 'Ragi bites', found: { ingredients_text: '' } })).toMatchObject({ barcode: null, title: 'The record for "Ragi bites" has no ingredient declaration' });
+    expect(labelFallbackOffer({ found: {} })).toBeNull();
+  });
+
+  it('keeps the manual-entry escape hatch usable from the fallback card', () => {
+    const base: Product = { id: 'catalog-1', brand: 'Example Foods', name: 'Ragi bites', category: 'snacks', icon: '🥫', color: '#eee', barcode: '8901234567890', ingredients: 'ragi flour', advisory: 'may contain milk', sodium: 450, basis: 'per 100 g' };
+    const manual = manualProduct(base, '8901234567890');
+    expect(manual.barcode).toBe('8901234567890');
+    expect(manual.name).toBe('New product');
+    expect(manual.brand).toBe('Your label');
+    expect(manual.ingredients).toBe('');
+    expect(manual.advisory).toBe('');
+    expect(manual.sodium).toBeNull();
+    expect(manual.basis).toBe('Not supplied');
+    // No catalog observation travels with it, so nothing is presented as already recorded.
+    expect(manual.observation).toBeUndefined();
+    expect(manual.id).toMatch(/^manual-\d+$/);
+    // The barcode is dropped when the pack carries none, never invented.
+    expect(manualProduct(base, '').barcode).toBe('');
   });
 
   it('reports whether the photographed pack is now saved against its barcode', () => {

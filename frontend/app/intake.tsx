@@ -66,7 +66,7 @@ export default function IntakeScreen() {
     {loading && !plan ? <Card style={st.empty}><ActivityIndicator size="small" color={colors.primary} /><Text style={st.cardSub}>Building your plan…</Text></Card> : null}
 
     {plan ? <>
-      <SectionTitle title="Proposed targets" action={`v${plan.version}`} />
+      <SectionTitle title="Proposed targets" action={plan.version} />
       {plan.targets.length ? plan.targets.map(target => <Card key={target.rule_id} style={st.target}>
         <View style={st.targetHead}><View style={{ flex: 1 }}><Text style={st.targetTitle}>{target.label}</Text><Text style={st.cardSub}>{nutrientDisplay(target.nutrient, plan)} · {target.limit_scope}</Text></View><View style={st.pills}><Pill label={target.direction.toUpperCase()} tone="purple" /><Pill label={confidenceLabel(target.confidence)} tone={confidenceTone(target.confidence)} /></View></View>
         {target.display_value ? <><Text style={st.headline}>{target.display_value}</Text><Text style={st.proposed}>{intakeProposedLine(target)}</Text></> : <Text style={st.headline}>{intakeProposedLine(target)}</Text>}

@@ -5,7 +5,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { Button, Card, Field, PageHeader, Pill, Screen, SectionTitle } from '@/src/components/ui';
-import { api, isUsableBarcode, labelExtractionMessage, labelFallbackOffer, type FssaiVerification, type LabelFallbackPrompt, type Product } from '@/src/api/client';
+import { api, isUsableBarcode, labelExtractionMessage, labelFallbackOffer, manualProduct, type FssaiVerification, type LabelFallbackPrompt, type Product } from '@/src/api/client';
 import { useApp } from '@/src/state/AppContext';
 import { colors, radius, typography } from '@/src/theme';
 
@@ -27,7 +27,13 @@ export default function ScanScreen() {
   const categories = ['All', ...new Set(products.map(item => item.category))];
   const visible = useMemo(() => products.filter(item => category === 'All' || item.category === category), [products, category]);
 
-  const select = (item: Product) => { setProduct(item); setLabelPhoto(null); setSearch(''); setMessage(''); setFallback(null); router.push('/review'); };
+  const select = (item: Product) => {
+    // A record the catalog did answer with but that declares no ingredients is as unusable as
+    // a missing one, so the photo path is offered for it too.
+    const offer = labelFallbackOffer({ barcode: item.barcode, query: search, found: item.observation ?? {} });
+    if (offer) { setMessage(''); setFallback(offer); return; }
+    setProduct(item); setLabelPhoto(null); setSearch(''); setMessage(''); setFallback(null); router.push('/review');
+  };
   const lookup = async (value = barcode) => {
     if (!value.trim()) { setMessage('Enter the barcode printed on the product.'); return; }
     setFallback(null);
@@ -47,7 +53,8 @@ export default function ScanScreen() {
     const typedBarcode = isUsableBarcode(query) ? query : '';
     try {
       const found = await searchCatalog(search);
-      setFallback(labelFallbackOffer({ barcode: typedBarcode, query, resultCount: found.length }));
+      // One useless record is no better than none, so it asks for the photo as well.
+      setFallback(labelFallbackOffer({ barcode: typedBarcode, query, resultCount: found.length, found: found.length === 1 ? found[0]?.observation ?? {} : null }));
     }
     catch (cause) {
       const offer = labelFallbackOffer({ barcode: typedBarcode, query, error: cause });
@@ -57,7 +64,7 @@ export default function ScanScreen() {
   };
   const startManual = (code = '') => {
     setFallback(null); setLabelPhoto(null);
-    setProduct({ ...product, id: `manual-${Date.now()}`, brand: 'Your label', name: 'New product', barcode: code, ingredients: '', advisory: '', sodium: null, basis: 'Not supplied', observation: undefined });
+    setProduct(manualProduct(product, code));
     router.push('/review');
   };
   const verifyFssai = async () => {
@@ -95,12 +102,23 @@ export default function ScanScreen() {
     const unusable = attached || !typed ? null : typed;
     try {
       const result = Platform.OS === 'web'
-        ? await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.85 })
+        // base64 is read while the picker still holds the file: its blob URL is revoked as
+        // soon as the dialog closes, and fetching that URL uploaded an empty file.
+        ? await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.85, base64: true })
         : await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.85 });
       if (result.canceled || !result.assets[0]) return;
       setMessage('Reading the label…');
+      const asset = result.assets[0];
       const outcome = await extractLabel(
-        { uri: result.assets[0].uri, name: result.assets[0].fileName, mimeType: result.assets[0].mimeType },
+        {
+          uri: asset.uri,
+          name: asset.fileName,
+          mimeType: asset.mimeType,
+          // Web: the base64 payload read at pick time, so a revoked blob: URL cannot empty
+          // the upload; a real File is used when the picker supplies one with content.
+          base64: asset.base64 ?? null,
+          file: (asset as { file?: Blob | null }).file ?? null,
+        },
         { barcode: attached, name: search.trim() || null },
       );
       setMessage(labelExtractionMessage(outcome, attached, unusable));

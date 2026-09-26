@@ -1,103 +1,77 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Button, Card, PageHeader, Pill, Screen, SectionTitle } from '@/src/components/ui';
+import { Button, Card, Disclosure, PageHeader, Pill, Screen, SectionTitle } from '@/src/components/ui';
 import { statusTone } from '@/src/components/findings';
-import { api, ConditionRegistry, conditionLabel, confidenceLabel, IntakePlan } from '@/src/api/client';
+import { api, ConditionRegistry, conditionLabel, EU_ALLERGENS } from '@/src/api/client';
 import { useApp } from '@/src/state/AppContext';
 import { colors, radius, typography } from '@/src/theme';
 
-function guidanceTone(confidence: 'established' | 'general_wellbeing' | 'clinician_only'): 'green' | 'blue' | 'amber' {
-  return confidence === 'established' ? 'green' : confidence === 'clinician_only' ? 'amber' : 'blue';
-}
-
 export default function GuideScreen() {
-  const { email, token, profile, conditions, allergens, sodiumLimit, history, loadHistory, openAssessment, guide, guideError, loadGuide, busyFor } = useApp();
+  const { email, token, profile, history, historyTotal, loadHistory, openAssessment, guide, guideError, loadGuide, busyFor } = useApp();
   const [registry, setRegistry] = useState<ConditionRegistry | null>(null);
-  const [plan, setPlan] = useState<IntakePlan | null>(null);
-  useEffect(() => { void loadHistory(); }, [loadHistory]);
-  useEffect(() => { void loadGuide(); }, [loadGuide]);
-  const loadRecords = useCallback(async () => {
-    if (!token) return;
-    try { setRegistry(await api.conditions(token)); } catch { setRegistry(null); }
-    if (!profile) { setPlan(null); return; }
-    try { setPlan(await api.intakePlan(token, profile.id, profile.version)); } catch { setPlan(null); }
-  }, [profile, token]);
-  useEffect(() => { void loadRecords(); }, [loadRecords]);
-  const profileName = email.split('@')[0] || 'Food guide';
-  const latest = history[0];
+  const [openError, setOpenError] = useState('');
+  useFocusEffect(useCallback(() => { void loadHistory(); void loadGuide(); }, [loadHistory, loadGuide]));
+  useEffect(() => {
+    let active = true;
+    if (token) void api.conditions(token).then(value => { if (active) setRegistry(value); }).catch(() => undefined);
+    return () => { active = false; };
+  }, [token]);
+  // The home screen describes the saved assessment profile, never unsaved editor state.
+  const saved = profile?.data;
+  const allergies = (saved?.allergies ?? []).map(value => EU_ALLERGENS.find(item => item.value === value)?.label ?? value);
+  const conditions = saved?.conditions ?? [];
+  const name = email.split('@')[0] || 'there';
+  const open = async (id: string) => {
+    setOpenError('');
+    try { await openAssessment(id); router.push('/assessment'); }
+    catch (cause) { setOpenError(cause instanceof Error ? cause.message : 'This check could not be opened. Please try again.'); }
+  };
   return <Screen>
-    <PageHeader title={`Welcome, ${profileName}`} subtitle="Check packaged food against the restrictions you have saved." right={<View style={st.avatar}><Text style={st.avatarText}>{profileName.slice(0, 1).toUpperCase()}</Text></View>} />
-    <Card style={st.hero}><View style={st.heroTop}><View style={{ flex: 1 }}><Pill label="PROFILE SAVED TO YOUR ACCOUNT" tone="green" icon="check-circle-outline" /><Text style={st.heroTitle}>Know what's in{ '\n' }your next bite.</Text><Text style={st.heroCopy}>Scan a barcode, search a product, or take a label photo for review.</Text></View><View style={st.heroIcon}><MaterialCommunityIcons name="leaf" size={39} color={colors.green} /></View></View><Button title="Check a packaged food" icon="barcode-scan" onPress={() => router.push('/(tabs)/scan')} /></Card>
-    <SectionTitle title="Your saved profile" action="Edit" onAction={() => router.push('/(tabs)/profile')} />
-    <Card style={st.profileCard}><Text style={st.label}>ALLERGENS TO CHECK</Text><View style={st.chips}>{allergens.length ? allergens.map(item => <Pill key={item} label={item} tone="red" />) : <Text style={st.cardSub}>No allergies selected</Text>}</View>{conditions.length > 0 && <><Text style={st.label}>CONDITIONS RECORDED</Text><View style={st.chips}>{conditions.map(item => <Pill key={item} label={conditionLabel(item, registry)} tone="purple" />)}</View></>}<View style={st.notice}><MaterialCommunityIcons name="information-outline" size={17} color={colors.amber} /><Text style={st.noticeText}>{sodiumLimit ? `Daily sodium limit recorded: ${sodiumLimit} mg. A product portion is evaluated only when its amount and portion size are known.` : 'Add personal limits from guidance you trust in your profile.'}</Text></View></Card>
-    <SectionTitle title="Guidance for your profile" action={guide ? `v${guide.profile_version}` : undefined} />
-    {guideError ? <Card style={st.error}><Text accessibilityRole="alert" style={st.errorText}>{guideError}</Text><Button title="Retry guidance" compact secondary onPress={() => void loadGuide()} /></Card>
-      : !guide ? <Card style={st.recent}><MaterialCommunityIcons name="progress-clock" size={20} color={colors.primary} /><Text style={st.cardSub}>{busyFor('guide') ? 'Loading guidance…' : 'No saved profile guidance yet.'}</Text></Card>
-        : <>
-          <Card style={st.profileCard}>
-            <Text style={st.label}>EXCLUSIONS THE BACKEND WILL CHECK</Text>
-            <View style={st.chips}>{guide.exclusions.length ? guide.exclusions.map(item => <Pill key={item} label={item.replaceAll('_', ' ')} tone="red" />) : <Text style={st.cardSub}>None recorded</Text>}</View>
-            {guide.recorded_limits.length > 0 && <><Text style={st.label}>RECORDED LIMITS</Text>{guide.recorded_limits.map(limit => <Text key={`${limit.nutrient}-${limit.scope}`} style={st.cardSub}>{limit.nutrient.replaceAll('_', ' ')}: max {limit.maximum} · {limit.scope} · {limit.source}</Text>)}</>}
-            {guide.comparison_goals.length > 0 && <><Text style={st.label}>COMPARISON GOALS</Text><View style={st.chips}>{guide.comparison_goals.map(goal => <Pill key={goal.nutrient} label={`${goal.nutrient.replaceAll('_', ' ')} ${goal.direction}`} tone="blue" />)}</View></>}
-          </Card>
-          {guide.condition_information.map(item => <Card key={item.condition} style={st.profileCard}><Text style={st.cardTitle}>{item.condition}</Text><Text style={st.cardSub}>{item.message}</Text><Pressable accessibilityRole="link" onPress={() => void Linking.openURL(item.source)}><Text style={st.link}>Open source guidance ↗</Text></Pressable></Card>)}
-          {guide.unsupported_conditions.length > 0 && <Card style={st.notice}><MaterialCommunityIcons name="alert-outline" size={17} color={colors.amber} /><Text style={st.noticeText}>Not covered by active guidance in this prototype: {guide.unsupported_conditions.join(', ')}. Record explicit restrictions from a clinician instead of relying on the condition name.</Text></Card>}
-          <Card style={st.profileCard}><Text style={st.label}>QUESTIONS TO ASK</Text>{guide.questions.map((question, index) => <Text key={index} style={st.cardSub}>{'\u2022'} {question}</Text>)}</Card>
-          <Text style={st.footer}>{guide.coverage}</Text>
-        </>}
-    <SectionTitle title="Condition information" action={registry ? `registry v${registry.version}` : undefined} />
-    {conditions.length === 0
-      ? <Card style={st.recent}><Text style={st.cardSub}>Record a condition in your profile to see its information here.</Text></Card>
-      : conditions.map(value => {
-        const info = registry?.conditions.find(item => item.slug === value);
-        if (!info) return <Card key={value} style={st.notice}><MaterialCommunityIcons name="alert-outline" size={17} color={colors.amber} /><Text style={st.noticeText}>{conditionLabel(value, registry)} is not covered by active guidance in this prototype. Ask a clinician for explicit limits instead of relying on the name.</Text></Card>;
-        return <Card key={value} style={st.profileCard}>
-          <View style={st.registryHead}><Text style={st.cardTitle}>{info.label}</Text><Pill label={confidenceLabel(info.guidance_confidence)} tone={guidanceTone(info.guidance_confidence)} /></View>
-          <Text style={st.cardSub}>{info.awareness}</Text>
-          {info.questions.map((question, index) => <Text key={index} style={st.cardSub}>{'\u2022'} {question}</Text>)}
-          {info.sources.map((source, index) => <Pressable key={index} accessibilityRole="link" onPress={() => void Linking.openURL(source)}><Text style={st.link}>Open source guidance ↗</Text></Pressable>)}
-        </Card>;
-      })}
-    <SectionTitle title="Personal intake" action="Open plan" onAction={() => router.push('/intake')} />
+    <View style={st.brandRow}><View style={st.brandLockup}><View style={st.brandMark}><MaterialCommunityIcons name="leaf" size={21} color={colors.onPrimary} /></View><Text style={st.wordmark}>SafeBitez<Text style={{ color: colors.primary }}>.</Text></Text></View><Pressable accessibilityRole="button" accessibilityLabel="Open your profile" onPress={() => router.push('/(tabs)/profile')} style={st.avatar}><Text style={st.avatarText}>{name.slice(0, 1).toUpperCase()}</Text></Pressable></View>
+    <View style={st.hero}>
+      <View style={st.heroTop}><Text style={st.heroEyebrow}>YOUR EVERYDAY FOOD COMPANION</Text><MaterialCommunityIcons name="silverware-fork-knife" size={26} color={colors.accent} /></View>
+      <Text accessibilityRole="header" style={st.heroTitle}>A little clarity.{ '\n' }Before every bite.</Text>
+      <Text style={st.heroCopy}>Hi {name}. Start with what's on your plate. We'll check the available ingredients against your saved restrictions.</Text>
+      <View style={st.heroFooter}><MaterialCommunityIcons name="text-box-check-outline" size={18} color={colors.accent} /><Text style={st.heroNote}>Your ingredients. Your profile. Evidence you can read.</Text></View>
+    </View>
+    <SectionTitle title="What are you checking?" />
+    <View style={st.choices}>
+      <FoodChoice title="Packaged food" copy="Search a product, enter a barcode, or read a label photo." icon="barcode-scan" action="Find a product" onPress={() => router.push('/(tabs)/scan')} />
+      <FoodChoice title="A cooked meal" copy="Explore a dish, then confirm its ingredients and preparation." icon="silverware-fork-knife" action="Check a meal" meal onPress={() => router.push('/dish')} />
+    </View>
+    <SectionTitle title="Your saved profile" action="Edit profile" onAction={() => router.push('/(tabs)/profile')} />
     <Card style={st.profileCard}>
-      {plan
-        ? <>
-          <Text style={st.cardSub}>{plan.targets.length} target{plan.targets.length === 1 ? '' : 's'} proposed from {plan.reports_used.length} confirmed report{plan.reports_used.length === 1 ? '' : 's'} and your recorded conditions.</Text>
-          {plan.targets.some(target => target.requires_clinician) ? <Pill label={`${plan.targets.filter(target => target.requires_clinician).length} NEED CLINICIAN REVIEW`} tone="amber" /> : null}
-          {plan.notes.length ? <Text style={st.cardSub}>{plan.notes[0]}</Text> : null}
-        </>
-        : <Text style={st.cardSub}>Add conditions or confirm a lab report to get personalised targets.</Text>}
-      <View style={st.links}><Button title="Upload a lab report" icon="file-document-outline" secondary onPress={() => router.push('/reports')} /><Button title="Review intake plan" icon="clipboard-pulse-outline" secondary onPress={() => router.push('/intake')} /></View>
+      <View style={st.row}><View style={st.icon}><MaterialCommunityIcons name="account-check-outline" size={24} color={colors.primary} /></View><View style={{ flex: 1 }}><Text style={st.cardTitle}>Made personal to you</Text><Text style={st.copy}>These are the settings used for new checks.</Text></View><Pill label={profile ? `Version ${profile.version}` : 'Set up'} tone={profile ? 'blue' : 'amber'} /></View>
+      <View style={st.chips}>{allergies.map(item => <Pill key={item} label={item} tone="red" />)}{conditions.map(item => <Pill key={item} label={conditionLabel(item, registry)} tone="purple" />)}{saved?.ingredient_exclusions.map(item => <Pill key={`exclusion-${item}`} label={item} tone="amber" />)}{!allergies.length && !conditions.length && !saved?.ingredient_exclusions.length ? <Text style={st.copy}>No allergies, conditions or ingredient exclusions recorded.</Text> : null}</View>
+      {saved?.limits.map(limit => <Text key={`${limit.nutrient}-${limit.scope}`} style={st.copy}>{limit.nutrient.replaceAll('_', ' ')}: {limit.maximum} maximum · {limit.scope.replaceAll('_', ' ')}</Text>)}
     </Card>
-    <SectionTitle title="Recent checks" action="See history" onAction={() => router.push('/(tabs)/history')} />
-    {latest ? <Pressable accessibilityRole="button" accessibilityLabel={`Open ${latest.food.name}`} onPress={() => { void openAssessment(latest.id).then(() => router.push('/assessment')); }} style={({ pressed }) => pressed && st.pressed}><Card style={st.recent}><View style={st.foodIcon}><MaterialCommunityIcons name="food-apple-outline" size={22} color={colors.primary} /></View><View style={{ flex: 1 }}><Text style={st.cardTitle}>{latest.food.name}</Text><Text style={st.cardSub}>{new Date(latest.created_at).toLocaleString()}</Text></View><Pill label={latest.result.status.replaceAll('_', ' ')} tone={statusTone(latest.result.status)} /></Card></Pressable> : <Card style={st.recent}><View style={{ flex: 1 }}><Text style={st.cardTitle}>No checks yet</Text><Text style={st.cardSub}>Completed assessments will appear here.</Text></View></Card>}
-    <Text style={st.footer}>The guide reports available evidence and missing information; it does not guarantee food safety.</Text>
+    <SectionTitle title="Recent checks" action="View history" onAction={() => router.push('/(tabs)/history')} />
+    {openError ? <Text accessibilityRole="alert" style={st.errorText}>{openError}</Text> : null}
+    {history.length ? <View style={{ gap: 10 }}>{history.slice(0, 3).map(item => <Pressable key={item.id} accessibilityRole="button" accessibilityLabel={`Open ${item.food.name}`} onPress={() => void open(item.id)} style={({ pressed }) => pressed && st.pressed}><Card style={st.row}><View style={st.icon}><MaterialCommunityIcons name={item.food.source.kind === 'dish' ? 'silverware-fork-knife' : 'food-apple-outline'} size={23} color={colors.primary} /></View><View style={{ flex: 1 }}><Text style={st.cardTitle}>{item.food.name}</Text><Text style={st.copy}>{new Date(item.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</Text><View style={{ marginTop: 8 }}><Pill label={item.result.status.replaceAll('_', ' ')} tone={statusTone(item.result.status)} /></View></View><MaterialCommunityIcons name="chevron-right" size={22} color={colors.muted} /></Card></Pressable>)}<Text style={st.caption}>{historyTotal} saved checks in your history</Text></View> : <Card style={st.profileCard}><Text style={st.cardTitle}>{busyFor('history') ? 'Loading your recent checks…' : 'Your first check starts here'}</Text><Text style={st.copy}>Choose a packaged food or a cooked meal above. Completed assessments are saved here with the profile used.</Text></Card>}
+    <SectionTitle title="Beyond the label" />
+    <View style={st.choices}><Pressable accessibilityRole="button" onPress={() => router.push('/reports')} style={st.utility}><MaterialCommunityIcons name="file-document-outline" size={24} color={colors.primary} /><Text style={st.cardTitle}>Lab reports</Text><Text style={st.copy}>Upload and confirm your results.</Text><Text style={st.link}>Open reports →</Text></Pressable><Pressable accessibilityRole="button" onPress={() => router.push('/intake')} style={st.utility}><MaterialCommunityIcons name="clipboard-pulse-outline" size={24} color={colors.primary} /><Text style={st.cardTitle}>Personal intake</Text><Text style={st.copy}>Review proposed nutrient targets.</Text><Text style={st.link}>Review your plan →</Text></Pressable></View>
+    <Disclosure title="Guidance for your profile" subtitle="Recorded checks, condition information and useful questions.">
+      {guideError ? <><Text accessibilityRole="alert" style={st.errorText}>{guideError}</Text><Button title="Retry guidance" secondary onPress={() => void loadGuide()} /></> : !guide ? <Text style={st.copy}>{busyFor('guide') ? 'Loading guidance…' : 'Save your profile to see guidance.'}</Text> : <>
+        <Text style={st.label}>INGREDIENTS TO CHECK</Text><View style={st.chips}>{guide.exclusions.length ? guide.exclusions.map(item => <Pill key={item} label={item.replaceAll('_', ' ')} tone="red" />) : <Text style={st.copy}>None recorded.</Text>}</View>
+        {guide.recorded_limits.map(limit => <Text key={`${limit.nutrient}-${limit.scope}`} style={st.copy}>{limit.nutrient.replaceAll('_', ' ')}: max {limit.maximum} · {limit.scope} · {limit.source}</Text>)}
+        {guide.comparison_goals.length ? <View style={st.chips}>{guide.comparison_goals.map(goal => <Pill key={goal.nutrient} label={`${goal.nutrient.replaceAll('_', ' ')}: ${goal.direction}`} tone="blue" />)}</View> : null}
+        {guide.condition_information.map(item => <View key={item.condition} style={st.guidance}><Text style={st.cardTitle}>{item.condition}</Text><Text style={st.copy}>{item.message}</Text><Pressable accessibilityRole="link" onPress={() => void Linking.openURL(item.source)}><Text style={st.link}>Read source guidance ↗</Text></Pressable></View>)}
+        {guide.unsupported_conditions.length ? <Text style={st.notice}>Guidance is not available for: {guide.unsupported_conditions.join(', ')}. Record explicit restrictions provided by your clinician.</Text> : null}
+        {guide.questions.map((question, index) => <Text key={index} style={st.copy}>• {question}</Text>)}<Text style={st.caption}>{guide.coverage}</Text>
+      </>}
+    </Disclosure>
+    <Text style={st.footer}>A clearer picture of what's known. Missing information stays unknown; a check is not a food-safety guarantee.</Text>
   </Screen>;
 }
+
+function FoodChoice({ title, copy, icon, action, meal = false, onPress }: { title: string; copy: string; icon: keyof typeof MaterialCommunityIcons.glyphMap; action: string; meal?: boolean; onPress: () => void }) {
+  return <Pressable accessibilityRole="button" accessibilityLabel={`${title}. ${action}`} onPress={onPress} style={({ pressed }) => [st.choice, meal && st.mealChoice, pressed && st.pressed]}><View style={[st.choiceIcon, meal && { backgroundColor: colors.orangeBg }]}><MaterialCommunityIcons name={icon} size={28} color={meal ? colors.amberInk : colors.primary} /></View><Text style={st.choiceTitle}>{title}</Text><Text style={st.copy}>{copy}</Text><View style={st.choiceAction}><Text style={st.link}>{action}</Text><MaterialCommunityIcons name="arrow-right" size={20} color={colors.primary} /></View></Pressable>;
+}
 const st = StyleSheet.create({
-  avatar: { width: 44, height: 44, borderRadius: radius.avatar, backgroundColor: colors.lavender, alignItems: 'center', justifyContent: 'center' },
-  avatarText: { color: colors.primary, fontSize: 17, fontWeight: '800' },
-  hero: { padding: 20, backgroundColor: colors.canvasSoft, borderWidth: 1, borderColor: colors.lavenderLine, gap: 16 },
-  heroTop: { flexDirection: 'row', gap: 12, alignItems: 'center' },
-  heroTitle: { ...typography.display, color: colors.ink, marginTop: 14 },
-  heroCopy: { ...typography.body, color: colors.muted, marginTop: 8, maxWidth: 360 },
-  heroIcon: { width: 68, height: 68, borderRadius: radius.card, backgroundColor: colors.lavender, alignItems: 'center', justifyContent: 'center' },
-  profileCard: { gap: 14 },
-  label: { ...typography.label, color: colors.muted },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  cardTitle: { ...typography.cardTitle, color: colors.ink },
-  cardSub: { ...typography.meta, color: colors.muted, marginTop: 4 },
-  notice: { flexDirection: 'row', gap: 8, alignItems: 'flex-start', backgroundColor: colors.amberBg, padding: 12, borderRadius: radius.chip },
-  noticeText: { flex: 1, ...typography.meta, color: colors.amberInk },
-  recent: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 16 },
-  foodIcon: { width: 44, height: 44, borderRadius: radius.avatar, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.lavender },
-  link: { ...typography.meta, color: colors.primary, fontWeight: '700', paddingVertical: 4 },
-  registryHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 9 },
-  links: { flexDirection: 'row', flexWrap: 'wrap', gap: 9 },
-  error: { backgroundColor: colors.redBg, gap: 9 },
-  errorText: { ...typography.meta, color: colors.red },
-  footer: { textAlign: 'center', ...typography.caption, color: colors.subtle, paddingHorizontal: 15 },
-  pressed: { opacity: 0.9 },
+  brandRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }, brandLockup: { flexDirection: 'row', alignItems: 'center', gap: 9 }, brandMark: { backgroundColor: colors.primary, width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center' }, wordmark: { ...typography.title, color: colors.ink, letterSpacing: -0.7 }, avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.lavender, alignItems: 'center', justifyContent: 'center' }, avatarText: { ...typography.bodyStrong, color: colors.primary },
+  hero: { borderRadius: 28, backgroundColor: colors.hero, padding: 26, gap: 17 }, heroTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }, heroEyebrow: { ...typography.label, color: colors.accent, flex: 1 }, heroTitle: { fontSize: 38, lineHeight: 44, fontWeight: '800', letterSpacing: -1.3, color: colors.onPrimary }, heroCopy: { ...typography.body, color: colors.heroText, maxWidth: 540 }, heroFooter: { flexDirection: 'row', gap: 8, borderTopWidth: 1, borderColor: '#376066', paddingTop: 17, alignItems: 'center' }, heroNote: { ...typography.caption, color: colors.heroText, flex: 1 },
+  choices: { flexDirection: 'row', flexWrap: 'wrap', gap: 14 }, choice: { flexGrow: 1, flexBasis: 260, backgroundColor: colors.surface, padding: 22, borderRadius: radius.card, borderWidth: 1, borderColor: colors.lavenderLine, gap: 10 }, mealChoice: { borderColor: '#E7E2D7' }, choiceIcon: { width: 54, height: 54, borderRadius: 18, backgroundColor: colors.lavender, alignItems: 'center', justifyContent: 'center', marginBottom: 5 }, choiceTitle: { ...typography.title, color: colors.ink }, choiceAction: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 },
+  profileCard: { gap: 16 }, row: { flexDirection: 'row', alignItems: 'center', gap: 12 }, icon: { width: 44, height: 44, borderRadius: 14, backgroundColor: colors.lavenderSoft, alignItems: 'center', justifyContent: 'center' }, cardTitle: { ...typography.cardTitle, color: colors.ink }, copy: { ...typography.meta, color: colors.muted, marginTop: 3 }, chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, caption: { ...typography.caption, color: colors.muted }, utility: { flexGrow: 1, flexBasis: 240, padding: 20, borderRadius: radius.card, backgroundColor: colors.lavenderSoft, gap: 9 }, link: { ...typography.meta, fontWeight: '700', color: colors.primary, paddingVertical: 8 }, label: { ...typography.label, color: colors.muted }, guidance: { gap: 6, borderTopWidth: 1, borderColor: colors.line, paddingTop: 16 }, notice: { ...typography.meta, color: colors.amberInk, backgroundColor: colors.amberBg, padding: 12, borderRadius: radius.chip }, errorText: { ...typography.meta, color: colors.red }, footer: { ...typography.caption, color: colors.muted, textAlign: 'center', paddingHorizontal: 16 }, pressed: { opacity: 0.8 },
 });

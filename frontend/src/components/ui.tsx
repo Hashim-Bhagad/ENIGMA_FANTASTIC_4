@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleProp, StyleSheet, Text, TextInput, View, ViewStyle } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleProp, StyleSheet, Text, TextInput, View, ViewStyle } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { colors, radius, space, typography } from '@/src/theme';
 
 export function Screen({ children, scroll = true, style }: React.PropsWithChildren<{ scroll?: boolean; style?: StyleProp<ViewStyle> }>) {
-  return <SafeAreaView edges={['top']} style={s.safe}><View style={[s.frame, style]}>{scroll ? <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>{children}</ScrollView> : children}</View></SafeAreaView>;
+  return <SafeAreaView edges={['top']} style={s.safe}><KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={[s.frame, style]}>{scroll ? <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>{children}</ScrollView> : children}</KeyboardAvoidingView></SafeAreaView>;
 }
 export function PageHeader({ eyebrow, title, subtitle, back = false, right }: { eyebrow?: string; title: string; subtitle?: string; back?: boolean; right?: React.ReactNode }) {
   return <View style={s.headerRow}>{back && <Pressable accessibilityRole="button" accessibilityLabel="Go back" onPress={() => router.back()} style={({ pressed }) => [s.back, pressed && s.pressed]}><MaterialCommunityIcons name="arrow-left" size={22} color={colors.ink} /></Pressable>}<View style={{ flex: 1 }}>
@@ -15,7 +15,7 @@ export function PageHeader({ eyebrow, title, subtitle, back = false, right }: { 
 }
 export function Card({ children, style }: React.PropsWithChildren<{ style?: StyleProp<ViewStyle> }>) { return <View style={[s.card, style]}>{children}</View>; }
 export function SectionTitle({ title, action, onAction }: { title: string; action?: string; onAction?: () => void }) {
-  return <View style={s.sectionRow}><Text accessibilityRole="header" style={s.sectionTitle}>{title}</Text>{action && <Pressable accessibilityRole="button" accessibilityLabel={action} onPress={onAction} style={({ pressed }) => pressed && s.pressed}><Text style={s.actionText}>{action}</Text></Pressable>}</View>;
+  return <View style={s.sectionRow}><Text accessibilityRole="header" style={s.sectionTitle}>{title}</Text>{action && onAction ? <Pressable accessibilityRole="button" accessibilityLabel={action} onPress={onAction} style={({ pressed }) => pressed && s.pressed}><Text style={s.actionText}>{action}</Text></Pressable> : action ? <Text style={s.subtitle}>{action}</Text> : null}</View>;
 }
 export function Button({ title, onPress, secondary = false, icon, compact = false, style, disabled = false, loading = false }: { title: string; onPress: () => void; secondary?: boolean; icon?: keyof typeof MaterialCommunityIcons.glyphMap; compact?: boolean; style?: StyleProp<ViewStyle>; disabled?: boolean; loading?: boolean }) {
   const inactive = disabled || loading;
@@ -35,12 +35,33 @@ export function Field({ label, value, onChangeText, placeholder, keyboardType, m
 }
 
 const s = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.canvas }, frame: { flex: 1, width: '100%', maxWidth: 720, alignSelf: 'center' }, content: { paddingHorizontal: space.xl, paddingTop: space.lg, paddingBottom: 40, gap: 18 },
+  safe: { flex: 1, backgroundColor: colors.canvas }, frame: { flex: 1, width: '100%', maxWidth: 960, alignSelf: 'center' }, content: { paddingHorizontal: space.xl, paddingTop: space.xxl, paddingBottom: 40, gap: 22 },
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: space.md, marginBottom: 3 }, back: { width: 44, height: 44, borderRadius: radius.control, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line, alignItems: 'center', justifyContent: 'center' }, pressed: { opacity: 0.85, transform: [{ scale: 0.98 }] },
   eyebrow: { ...typography.label, color: colors.primary, marginBottom: 6 }, title: { ...typography.display, color: colors.ink }, subtitle: { ...typography.body, color: colors.muted, marginTop: 6, maxWidth: 560 },
-  card: { backgroundColor: colors.surface, borderRadius: radius.card, borderWidth: 1, borderColor: colors.line, padding: 18, shadowColor: colors.shadow, shadowOpacity: .05, shadowRadius: 16, shadowOffset: { width: 0, height: 6 }, elevation: 1 },
+  card: { backgroundColor: colors.surface, borderRadius: radius.card, borderWidth: 1, borderColor: colors.line, padding: 18, shadowColor: colors.shadow, shadowOpacity: .025, shadowRadius: 16, shadowOffset: { width: 0, height: 6 }, elevation: 1 },
   sectionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: space.sm, marginBottom: -4 }, sectionTitle: { ...typography.section, color: colors.ink, flexShrink: 1 }, actionText: { ...typography.meta, color: colors.primary, fontWeight: '700', paddingVertical: 12 },
-  button: { backgroundColor: colors.primary, minHeight: 52, borderRadius: radius.pill, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9 }, buttonSecondary: { backgroundColor: colors.surface, borderColor: colors.stroke, borderWidth: 1 }, buttonCompact: { minHeight: 44, paddingHorizontal: 16 }, buttonDisabled: { opacity: 0.5 }, buttonText: { ...typography.action, color: colors.onPrimary }, buttonSecondaryText: { color: colors.primary },
+  button: { backgroundColor: colors.primary, minHeight: 52, borderRadius: radius.control, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9 }, buttonSecondary: { backgroundColor: colors.surface, borderColor: colors.stroke, borderWidth: 1 }, buttonCompact: { minHeight: 44, paddingHorizontal: 16 }, buttonDisabled: { opacity: 0.5 }, buttonText: { ...typography.action, color: colors.onPrimary }, buttonSecondaryText: { color: colors.primary },
   pill: { alignSelf: 'flex-start', borderRadius: radius.pill, paddingHorizontal: 11, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', gap: 5 }, pillText: { fontSize: 11, lineHeight: 15, fontWeight: '800' },
   fieldLabel: { ...typography.meta, color: colors.ink, fontWeight: '700' }, input: { borderWidth: 1, borderColor: colors.stroke, borderRadius: radius.control, backgroundColor: colors.surface, color: colors.ink, minHeight: 50, paddingHorizontal: 14, fontSize: 16 }, inputFocused: { borderColor: colors.primary },
 });
+
+/** Additional context stays available without crowding the primary task. */
+export function Disclosure({ title, subtitle, children }: React.PropsWithChildren<{ title: string; subtitle?: string }>) {
+  const [open, setOpen] = useState(false);
+  return <Card style={{ gap: open ? 18 : 0 }}>
+    <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} onPress={() => setOpen(value => !value)} style={{ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+      <View style={{ flex: 1 }}><Text style={s.sectionTitle}>{title}</Text>{subtitle ? <Text style={s.subtitle}>{subtitle}</Text> : null}</View>
+      <MaterialCommunityIcons name={open ? 'chevron-up' : 'chevron-down'} size={22} color={colors.primary} />
+    </Pressable>
+    {open ? children : null}
+  </Card>;
+}
+
+export function FlowSteps({ current }: { current: 0 | 1 | 2 }) {
+  return <View accessibilityLabel={`Step ${current + 1} of 3: ${['Find food', 'Review label', 'Read findings'][current]}`} style={{ flexDirection: 'row', gap: 8 }}>
+    {['Find food', 'Review label', 'Read findings'].map((label, index) => <View key={label} style={{ flex: 1, gap: 7 }}>
+      <View style={{ height: 3, borderRadius: 2, backgroundColor: index <= current ? colors.primary : colors.line }} />
+      <Text style={{ ...typography.caption, color: index === current ? colors.primaryDark : colors.muted, fontWeight: index === current ? '700' : '400' }}>{index + 1}. {label}</Text>
+    </View>)}
+  </View>;
+}
