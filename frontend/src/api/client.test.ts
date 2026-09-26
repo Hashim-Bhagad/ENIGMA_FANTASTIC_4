@@ -755,3 +755,26 @@ describe('back navigation cannot dead-end', () => {
     expect(backAction(false, '/(tabs)/scan')).toEqual({ replace: '/(tabs)/scan' });
   });
 });
+
+describe('backend reachability notice', () => {
+  it('names the URL it tried and how to start the API', async () => {
+    const { backendUnreachableNotice } = await import('../navigation');
+    const notice = backendUnreachableNotice('http://localhost:8080', 'Cannot reach the backend at http://localhost:8080.');
+    expect(notice.title).toContain('http://localhost:8080');
+    expect(notice.detail).toContain('docker compose --env-file backend/.env up -d');
+    expect(notice.detail).toContain('port 8000');
+    expect(notice.detail).toContain('adb reverse');
+  });
+
+  it('probes readiness without a token on the configured base URL', async () => {
+    const calls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      calls.push(String(url));
+      return { ok: true, status: 200, json: async () => ({ status: 'ready', migrations: 'current' }) };
+    }));
+    const { api } = await import('./client');
+    const result = await api.health();
+    expect(calls[0]).toMatch(/\/health\/ready$/);
+    expect(result.status).toBe('ready');
+  });
+});

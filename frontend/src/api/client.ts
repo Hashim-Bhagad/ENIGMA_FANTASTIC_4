@@ -476,6 +476,9 @@ export function confidenceLabel(confidence: GuidanceConfidence): string {
 
 const baseUrl = (process.env.EXPO_PUBLIC_API_URL || (Platform.OS === 'android' ? 'http://10.0.2.2:8000' : 'http://localhost:8000')).replace(/\/$/, '');
 
+/** The URL every call is sent to, so a screen can show what it actually tried. */
+export const API_BASE_URL = baseUrl;
+
 /** Frontend-origin codes sit alongside the backend's documented error codes. */
 export type ApiErrorCode =
   | 'validation_error' | 'unauthorized' | 'forbidden' | 'not_found' | 'conflict' | 'rate_limited'
@@ -584,6 +587,7 @@ const DEFAULT_TIMEOUT_MS = 15_000;
 const PHOTO_TIMEOUT_MS = 60_000;
 const DRAFT_TIMEOUT_MS = 45_000;
 const REPORT_TIMEOUT_MS = 90_000;
+const HEALTH_TIMEOUT_MS = 8_000;
 /**
  * A meal check can run two provider calls in sequence — the wording review, then the swap
  * suggestions — so the shared 15 s default is far too short for it.
@@ -762,6 +766,9 @@ export const api = {
   register: (email: string, password: string) => request<{ user: { id: string; email: string }; access_token: string }>('/api/auth/register', undefined, { method: 'POST', body: JSON.stringify({ email, password }) }),
   login: (email: string, password: string) => request<{ user: { id: string; email: string }; access_token: string }>('/api/auth/login', undefined, { method: 'POST', body: JSON.stringify({ email, password }) }),
   me: (token: string) => request<{ id: string; email: string }>('/api/auth/me', token),
+  // Unauthenticated readiness probe: the one call that works before sign-in and tells the app
+  // whether a failure is the backend being down rather than the request being wrong.
+  health: () => request<{ status: string; migrations?: string }>('/health/ready', undefined, {}, HEALTH_TIMEOUT_MS),
   profile: (token: string) => request<SavedProfile>('/api/profiles/me', token),
   saveProfile: (token: string, data: ProfileData, expectedVersion: number | null) => request<SavedProfile>('/api/profiles/me', token, { method: 'PUT', body: JSON.stringify({ expected_version: expectedVersion, data }) }),
   profilesGuide: (token: string, profileId: string, profileVersion: number) => request<ProfilesGuide>('/api/profiles/guide', token, { method: 'POST', body: JSON.stringify({ profile_id: profileId, profile_version: profileVersion }) }),

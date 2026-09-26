@@ -26,7 +26,8 @@ type AppContextValue = {
   product: Product; setProduct: (product: Product) => void; products: Product[]; setProducts: (products: Product[]) => void;
   search: string; setSearch: (value: string) => void; catalogMessage: string; loadCatalog: () => Promise<void>; searchCatalog: (query: string) => Promise<Product[]>; lookupBarcode: (barcode: string) => Promise<Product>;
   allergens: string[]; toggleAllergen: (value: string) => void; conditions: string[]; toggleCondition: (value: string) => void;
-  labelPhoto: string | null; setLabelPhoto: (uri: string | null) => void; sodiumLimit: string; setSodiumLimit: (value: string) => void;
+  labelPhoto: string | null; setLabelPhoto: (uri: string | null) => void;
+  apiStatus: 'checking' | 'ok' | 'unreachable'; apiDetail: string; checkApi: () => Promise<void>; sodiumLimit: string; setSodiumLimit: (value: string) => void;
   extractLabel: (photo: Photo, meta?: LabelExtractionMeta) => Promise<LabelExtractionOutcome>;
   assessment: Assessment | null; createAssessment: (portion: number | null, food?: FoodObservation) => Promise<Assessment>;
   recommendation: Recommendation | null; getRecommendations: () => Promise<Recommendation>;
@@ -52,6 +53,8 @@ export function AppProvider({ children }: React.PropsWithChildren) {
   const [search, setSearch] = useState('');
   const [catalogMessage, setCatalogMessage] = useState('');
   const [labelPhoto, setLabelPhoto] = useState<string | null>(null);
+  const [apiStatus, setApiStatus] = useState<'checking' | 'ok' | 'unreachable'>('checking');
+  const [apiDetail, setApiDetail] = useState('');
   const [assessment, setAssessment] = useState<Assessment | null>(null);
   const [recommendation, setRecommendation] = useState<Recommendation | null>(null);
   const [history, setHistory] = useState<Assessment[]>([]);
@@ -227,6 +230,24 @@ export function AppProvider({ children }: React.PropsWithChildren) {
     });
   }, [token, withOperation]);
 
+  // One readiness probe at startup: it explains a failure as "the backend is down" instead of
+  // letting every screen report the same generic network error separately.
+  const checkApi = useCallback(async () => {
+    setApiStatus('checking');
+    try {
+      await api.health();
+      setApiStatus('ok');
+      setApiDetail('');
+    } catch (cause) {
+      setApiStatus('unreachable');
+      setApiDetail(cause instanceof Error ? cause.message : '');
+    }
+  }, []);
+
+  useEffect(() => {
+    void checkApi();
+  }, [checkApi]);
+
   const refreshHistory = useCallback(async () => {
     if (!token) return;
     const page = await api.history(token, HISTORY_PAGE_SIZE, 0);
@@ -323,13 +344,13 @@ export function AppProvider({ children }: React.PropsWithChildren) {
     profile, profileDraft, setProfileDraft, saveProfile, applyIntakeTarget,
     product, setProduct, products, setProducts,
     search, setSearch, catalogMessage, loadCatalog, searchCatalog, lookupBarcode, allergens, toggleAllergen, conditions, toggleCondition,
-    labelPhoto, setLabelPhoto, sodiumLimit, setSodiumLimit, extractLabel,
+    labelPhoto, setLabelPhoto, apiStatus, apiDetail, checkApi, sodiumLimit, setSodiumLimit, extractLabel,
     assessment, createAssessment, recommendation, getRecommendations,
     history, historyTotal, hasMoreHistory, loadHistory, loadMoreHistory, openAssessment,
     guide, guideError, loadGuide,
     dishDraft, setDishDraft, dishResult, assessDish, clearDish,
     busy, busyFor, error, clearError: () => setError(''),
-  }), [authState, authError, token, email, authenticate, restoreSession, signOut, profile, profileDraft, saveProfile, applyIntakeTarget, product, products, search, catalogMessage, loadCatalog, searchCatalog, lookupBarcode, allergens, toggleAllergen, conditions, toggleCondition, labelPhoto, sodiumLimit, setSodiumLimit, extractLabel, assessment, createAssessment, recommendation, getRecommendations, history, historyTotal, hasMoreHistory, loadHistory, loadMoreHistory, openAssessment, guide, guideError, loadGuide, dishDraft, dishResult, assessDish, clearDish, busy, busyFor, error]);
+  }), [authState, authError, token, email, authenticate, restoreSession, signOut, apiStatus, apiDetail, checkApi, profile, profileDraft, saveProfile, applyIntakeTarget, product, products, search, catalogMessage, loadCatalog, searchCatalog, lookupBarcode, allergens, toggleAllergen, conditions, toggleCondition, labelPhoto, sodiumLimit, setSodiumLimit, extractLabel, assessment, createAssessment, recommendation, getRecommendations, history, historyTotal, hasMoreHistory, loadHistory, loadMoreHistory, openAssessment, guide, guideError, loadGuide, dishDraft, dishResult, assessDish, clearDish, busy, busyFor, error]);
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }
 

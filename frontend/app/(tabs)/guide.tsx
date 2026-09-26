@@ -3,16 +3,20 @@ import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Button, Card, Disclosure, PageHeader, Pill, Screen, SectionTitle } from '@/src/components/ui';
+import { API_BASE_URL } from '@/src/api/client';
+import { backendUnreachableNotice } from '@/src/navigation';
 import { statusTone } from '@/src/components/findings';
 import { api, ConditionRegistry, conditionLabel, EU_ALLERGENS } from '@/src/api/client';
 import { useApp } from '@/src/state/AppContext';
 import { colors, radius, typography } from '@/src/theme';
 
 export default function GuideScreen() {
-  const { email, token, profile, history, historyTotal, loadHistory, openAssessment, guide, guideError, loadGuide, busyFor } = useApp();
+  const { email, token, profile, history, historyTotal, loadHistory, openAssessment, guide, guideError, loadGuide, busyFor, apiStatus, apiDetail, checkApi } = useApp();
   const [registry, setRegistry] = useState<ConditionRegistry | null>(null);
   const [openError, setOpenError] = useState('');
-  useFocusEffect(useCallback(() => { void loadHistory(); void loadGuide(); }, [loadHistory, loadGuide]));
+  // Re-probe on focus as well: an outage that starts after sign-in should show up here rather
+  // than only as a failed refresh inside individual cards.
+  useFocusEffect(useCallback(() => { void checkApi(); void loadHistory(); void loadGuide(); }, [checkApi, loadHistory, loadGuide]));
   useEffect(() => {
     let active = true;
     if (token) void api.conditions(token).then(value => { if (active) setRegistry(value); }).catch(() => undefined);
@@ -28,7 +32,16 @@ export default function GuideScreen() {
     try { await openAssessment(id); router.push('/assessment'); }
     catch (cause) { setOpenError(cause instanceof Error ? cause.message : 'This check could not be opened. Please try again.'); }
   };
+  const unreachable = apiStatus === 'unreachable' ? backendUnreachableNotice(API_BASE_URL, apiDetail) : null;
   return <Screen>
+    {unreachable ? <Card style={{ gap: 10, borderColor: colors.red, borderWidth: 1 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <MaterialCommunityIcons name="server-network-off" size={20} color={colors.red} />
+        <Text style={{ flex: 1, color: colors.ink, fontSize: 15, fontWeight: '800' }}>{unreachable.title}</Text>
+      </View>
+      <Text style={{ color: colors.muted, fontSize: 13, lineHeight: 19 }}>{unreachable.detail}</Text>
+      <Button title="Try again" icon="refresh" secondary loading={apiStatus === 'checking'} onPress={() => void checkApi()} />
+    </Card> : null}
     <View style={st.brandRow}><View style={st.brandLockup}><View style={st.brandMark}><MaterialCommunityIcons name="leaf" size={21} color={colors.onPrimary} /></View><Text style={st.wordmark}>SafeBitez<Text style={{ color: colors.primary }}>.</Text></Text></View><Pressable accessibilityRole="button" accessibilityLabel="Open your profile" onPress={() => router.push('/(tabs)/profile')} style={st.avatar}><Text style={st.avatarText}>{name.slice(0, 1).toUpperCase()}</Text></Pressable></View>
     <View style={st.hero}>
       <View style={st.heroTop}><Text style={st.heroEyebrow}>YOUR EVERYDAY FOOD COMPANION</Text><MaterialCommunityIcons name="silverware-fork-knife" size={26} color={colors.accent} /></View>
