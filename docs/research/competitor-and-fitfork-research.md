@@ -1,14 +1,16 @@
 # Comparable apps and FitFork reuse assessment
 
+> Status: historical notes. Banner added 2026-09-26; retained as research context. Paths under `FitFork/` refer to a separate external checkout that is not part of this repository.
+
 Research date: 26 September 2026.
 
-Scope: official product/support documentation for comparable apps, and read-only inspection of `/home/hashim/FitFork`. This is a planning and reuse assessment, not an implementation or a hands-on benchmark of the commercial apps.
+Scope: official product/support documentation for comparable apps, and read-only inspection of the external `FitFork` checkout. This is a planning and reuse assessment, not an implementation or a hands-on benchmark of the commercial apps.
 
 ## Recommendation
 
 Combine Fig's restriction-specific explanations, Spoonful's scan-to-swap flow, FoodSwitch's comparable-product approach, Yuka's quick summary/history, and Cronometer's target editing and missing-food recovery. Adapt selected FitFork backend and client-state patterns. Build a new packaged-product evidence and replacement pipeline using FastAPI and PostgreSQL, with React Native screens.
 
-LLMs are useful for label extraction, query interpretation, and grounded explanations. TypeSafe Jev is a proposed addition for bounded category/preference judgments and ranking already assessed replacement candidates. Keep source observations, clinical rule applicability, numeric comparisons, and final candidate eligibility explicit and reproducible. See [the detailed Jev integration proposal](/home/hashim/ENIGMA_FANTASTIC_4/typesafe-jev-integration-plan.md).
+LLMs are useful for label extraction, query interpretation, and grounded explanations. TypeSafe Jev is a proposed addition for bounded category/preference judgments and ranking already assessed replacement candidates. Keep source observations, clinical rule applicability, numeric comparisons, and final candidate eligibility explicit and reproducible. See [the detailed Jev integration proposal](typesafe-jev-integration-plan.md).
 
 ## Competitor findings
 
@@ -50,7 +52,7 @@ The result should always retain known concerns alongside unknown fields. A green
 
 FitFork's source is a FastAPI backend with MongoDB persistence and a Vite/React DOM frontend. It includes registration/login, saved fitness-oriented profiles, recipe text search with dietary/allergen filters, Gemini meal generation, chat, and Google Calendar integration.
 
-The inspected search implementation is MongoDB text search plus filters. The checked-in code does not implement the vector-search pipeline claimed in some documentation. Treat the code as the capability reference. [Search implementation](/home/hashim/FitFork/backend/app/db/mongodb.py:146)
+The inspected search implementation is MongoDB text search plus filters. The checked-in code does not implement the vector-search pipeline claimed in some documentation. Treat the code as the capability reference. [Search implementation](FitFork/backend/app/db/mongodb.py:146)
 
 The saved screenshots provide design references. They were not treated as proof of live screen behavior; the profile reference uses sliders while the inspected page implements browser form inputs.
 
@@ -58,15 +60,15 @@ The saved screenshots provide design references. They were not treated as proof 
 
 | FitFork source | Reuse value | Required adaptation |
 | --- | --- | --- |
-| [Authentication helpers](/home/hashim/FitFork/backend/app/api/auth.py:25) | Password verification, token creation, current-user dependency structure | PostgreSQL repository, immutable user-ID subject, deliberate token policy, required configured signing secret |
-| [Account/profile endpoints](/home/hashim/FitFork/backend/app/api/endpoints.py:45) | Sign-up, login, current-user/profile route structure | Our route contracts, owner-scoped profiles, conditions/limits, profile versioning |
-| [Pydantic schemas](/home/hashim/FitFork/backend/app/models/schemas.py:5) | Typed request/response organization | Replace fitness/recipe schemas with observations, restrictions, units/bases, findings, and recommendation schemas |
-| [Frontend API client](/home/hashim/FitFork/frontend/src/api.js:5) | Central API access and error handling | Expo configuration, native token storage/navigation, web adapter, image uploads, our endpoint names |
-| [Authentication context](/home/hashim/FitFork/frontend/src/context/AuthContext.jsx:6) | Sign-in state and saved-profile loading flow | Remove browser-only storage; clear old account state before loading another profile; handle profile-load failure explicitly |
-| [Profile page](/home/hashim/FitFork/frontend/src/pages/ProfilePage.jsx:1) | Selection chips, editable fields, save/loading/error states | Rebuild with React Native components; remove required body metrics and fitness-goal assumptions |
-| [Search page](/home/hashim/FitFork/frontend/src/pages/SearchPage.jsx:1) | Query, loading, empty-result, and card flow | Packaged-product categories/results; do not require height to search; use consumer-readable errors |
-| [Gemini service](/home/hashim/FitFork/backend/app/services/meal_planner.py:13) | Backend model client and structured-response orchestration | Bounded extraction/explanation/replacement tasks, explicit schemas, candidate/evidence checks, timeout/retry/fallback behavior |
-| [Import script](/home/hashim/FitFork/backend/scripts/import_recipes_mongo.py:21) | Batch-import structure | New product source/schema, PostgreSQL writes, validation, repeatable imports, preserved provenance |
+| [Authentication helpers](FitFork/backend/app/api/auth.py:25) | Password verification, token creation, current-user dependency structure | PostgreSQL repository, immutable user-ID subject, deliberate token policy, required configured signing secret |
+| [Account/profile endpoints](FitFork/backend/app/api/endpoints.py:45) | Sign-up, login, current-user/profile route structure | Our route contracts, owner-scoped profiles, conditions/limits, profile versioning |
+| [Pydantic schemas](FitFork/backend/app/models/schemas.py:5) | Typed request/response organization | Replace fitness/recipe schemas with observations, restrictions, units/bases, findings, and recommendation schemas |
+| [Frontend API client](FitFork/frontend/src/api.js:5) | Central API access and error handling | Expo configuration, native token storage/navigation, web adapter, image uploads, our endpoint names |
+| [Authentication context](FitFork/frontend/src/context/AuthContext.jsx:6) | Sign-in state and saved-profile loading flow | Remove browser-only storage; clear old account state before loading another profile; handle profile-load failure explicitly |
+| [Profile page](FitFork/frontend/src/pages/ProfilePage.jsx:1) | Selection chips, editable fields, save/loading/error states | Rebuild with React Native components; remove required body metrics and fitness-goal assumptions |
+| [Search page](FitFork/frontend/src/pages/SearchPage.jsx:1) | Query, loading, empty-result, and card flow | Packaged-product categories/results; do not require height to search; use consumer-readable errors |
+| [Gemini service](FitFork/backend/app/services/meal_planner.py:13) | Backend model client and structured-response orchestration | Bounded extraction/explanation/replacement tasks, explicit schemas, candidate/evidence checks, timeout/retry/fallback behavior |
+| [Import script](FitFork/backend/scripts/import_recipes_mongo.py:21) | Batch-import structure | New product source/schema, PostgreSQL writes, validation, repeatable imports, preserved provenance |
 
 No inspected file is a drop-in module for the new full stack. Authentication helpers and service organization can save work; the MongoDB persistence and DOM UI need adaptation. Recipes and fitness-target computation are not the selected first recommendation surface.
 
@@ -74,7 +76,7 @@ No inspected file is a drop-in module for the new full stack. Authentication hel
 
 ### Restriction matching
 
-The recipe filter uses `$in` for selected diet tags, so matching any one tag is enough. Our engine must evaluate every supported applicable restriction. Missing allergen metadata must not be treated as a completed check. [Filter source](/home/hashim/FitFork/backend/app/db/mongodb.py:157)
+The recipe filter uses `$in` for selected diet tags, so matching any one tag is enough. Our engine must evaluate every supported applicable restriction. Missing allergen metadata must not be treated as a completed check. [Filter source](FitFork/backend/app/db/mongodb.py:157)
 
 The enrichment notebook uses substring matching for allergen detection. An isolated reproduction of that matching logic produced:
 
@@ -85,21 +87,21 @@ The enrichment notebook uses substring matching for allergen detection. An isola
 | `eggplant` | `eggs` | Substring creates a false match |
 | `sesame seeds` | none | Sesame is absent from this dictionary despite being offered in the profile UI |
 
-The profile UI uses `tree nuts`, while enrichment uses `tree_nuts`; the direct exclusion filter does not normalize that mismatch. Use canonical IDs, phrase/context matching, and ambiguity handling. [Notebook, cell 6](/home/hashim/FitFork/data/data_enriching.ipynb)
+The profile UI uses `tree nuts`, while enrichment uses `tree_nuts`; the direct exclusion filter does not normalize that mismatch. Use canonical IDs, phrase/context matching, and ambiguity handling. [Notebook, cell 6](FitFork/data/data_enriching.ipynb)
 
 ### Generated recommendations
 
-FitFork passes recipe titles, IDs, and macros to Gemini, then checks the returned JSON against Pydantic models. The inspected path does not verify every generated recipe ID, ingredient claim, or nutrient value against retrieved observations. A valid-shaped response is not that verification. [Generation path](/home/hashim/FitFork/backend/app/services/meal_planner.py:36)
+FitFork passes recipe titles, IDs, and macros to Gemini, then checks the returned JSON against Pydantic models. The inspected path does not verify every generated recipe ID, ingredient claim, or nutrient value against retrieved observations. A valid-shaped response is not that verification. [Generation path](FitFork/backend/app/services/meal_planner.py:36)
 
 For our app, the model can choose IDs from assessed candidates. FastAPI checks membership, candidate eligibility, and claimed comparisons before returning suggestions. An empty eligible set returns a no-match explanation, even if a model proposes an attractive replacement.
 
 ### Authentication and packaging
 
-The auth helper has a default development signing secret. Adopt the flow with required configured signing credentials rather than carrying that fallback into a hosted app. [Auth configuration](/home/hashim/FitFork/backend/app/api/auth.py:11)
+The auth helper has a default development signing secret. Adopt the flow with required configured signing credentials rather than carrying that fallback into a hosted app. [Auth configuration](FitFork/backend/app/api/auth.py:11)
 
-The frontend client uses `localStorage`, `window.location`, and Vite environment variables. These browser APIs require native/web adapters. [API client](/home/hashim/FitFork/frontend/src/api.js:3)
+The frontend client uses `localStorage`, `window.location`, and Vite environment variables. These browser APIs require native/web adapters. [API client](FitFork/frontend/src/api.js:3)
 
-The model service imports `google.genai`, but `google-genai` is not explicitly listed in the inspected requirements. Reconcile and pin dependencies during implementation; this review does not establish runtime installability. [Requirements](/home/hashim/FitFork/backend/requirements.txt:1)
+The model service imports `google.genai`, but `google-genai` is not explicitly listed in the inspected requirements. Reconcile and pin dependencies during implementation; this review does not establish runtime installability. [Requirements](FitFork/backend/requirements.txt:1)
 
 ## FitFork data audit
 
@@ -107,15 +109,15 @@ Counts below were computed from the local raw files, not copied from README clai
 
 | File | Actual contents | Useful reuse | Unsuitable use |
 | --- | --- | --- | --- |
-| [train.json](/home/hashim/FitFork/data/raw/train.json) | 39,774 entries; keys `id`, `cuisine`, `ingredients`; 20 cuisine labels | Ingredient vocabulary examples, phrase/alias test cases, later cuisine work | Barcode lookup, branded-product nutrition, condition-to-food clinical evidence |
-| [epi_r.csv](/home/hashim/FitFork/data/raw/epi_r.csv) | 20,052 rows and 680 columns, including title/rating/calories/protein/fat/sodium and tags | Later recipe-category exploration after provenance and quality checks | Personalized packaged-product suitability or verified allergen absence |
-| [data_enriching.ipynb](/home/hashim/FitFork/data/data_enriching.ipynb) | Cuisine classifier and recipe enrichment/allergen heuristics | Pipeline organization and test cases, after correction | Automatically trustworthy clinical labels or nutrient measurements |
+| [train.json](FitFork/data/raw/train.json) | 39,774 entries; keys `id`, `cuisine`, `ingredients`; 20 cuisine labels | Ingredient vocabulary examples, phrase/alias test cases, later cuisine work | Barcode lookup, branded-product nutrition, condition-to-food clinical evidence |
+| [epi_r.csv](FitFork/data/raw/epi_r.csv) | 20,052 rows and 680 columns, including title/rating/calories/protein/fat/sodium and tags | Later recipe-category exploration after provenance and quality checks | Personalized packaged-product suitability or verified allergen absence |
+| [data_enriching.ipynb](FitFork/data/data_enriching.ipynb) | Cuisine classifier and recipe enrichment/allergen heuristics | Pipeline organization and test cases, after correction | Automatically trustworthy clinical labels or nutrient measurements |
 
 In `epi_r.csv`, 4,119 rows lack a finite sodium value and 4,117 lack a finite calories value. The maximum raw sodium value is 27,675,110 and the maximum calories value is 30,111,218. These are extreme outliers requiring investigation; the CSV itself does not provide an explicit serving/100-g basis field. It contains neither a full ingredient-list column nor barcode identifiers.
 
-The notebook creates empty ingredient/allergen lists for the Epicurious rows, estimates carbohydrate by subtraction, estimates fiber as a fraction of that estimate, writes zero for sugar and saturated fat, and marks nutrition valid. Preserve absent values as unknown and estimates as estimates; do not adopt these outputs as measured product facts. [Notebook, cells 4 and 6](/home/hashim/FitFork/data/data_enriching.ipynb)
+The notebook creates empty ingredient/allergen lists for the Epicurious rows, estimates carbohydrate by subtraction, estimates fiber as a fraction of that estimate, writes zero for sugar and saturated fat, and marks nutrition valid. Preserve absent values as unknown and estimates as estimates; do not adopt these outputs as measured product facts. [Notebook, cells 4 and 6](FitFork/data/data_enriching.ipynb)
 
-The import script expects `data/processed/final_recipes_enriched.jsonl`; that file is absent from this checkout. The notebook also references `food_com_cleaned.jsonl`, which is absent from the inspected inventory. The documented 226,000-plus ready-to-query corpus is therefore not established by the local files. [Import path](/home/hashim/FitFork/backend/scripts/import_recipes_mongo.py:15)
+The import script expects `data/processed/final_recipes_enriched.jsonl`; that file is absent from this checkout. The notebook also references `food_com_cleaned.jsonl`, which is absent from the inspected inventory. The documented 226,000-plus ready-to-query corpus is therefore not established by the local files. [Import path](FitFork/backend/scripts/import_recipes_mongo.py:15)
 
 The README claims MIT licensing, but the referenced root `LICENSE` file is absent. Dataset provenance/license documents were not found in the inspected raw-data directory. Record ownership and dataset source terms before copying third-party material; a code-license statement does not establish the dataset's terms. This is an unresolved provenance finding, not a conclusion that the team cannot reuse its own work.
 
@@ -142,7 +144,7 @@ The user clarified that “jev” refers to TypeSafe's flagship System One model
 
 Jev currently accepts text/JSON, so label-photo extraction remains a separate multimodal model/OCR task. [Supported state](https://docs.typesafe.ai/concepts/state) The vendor's documented limitations include arithmetic and generation; neither nutrient calculations nor free-form dietary guidance belongs in Jev. [Known limitations](https://docs.typesafe.ai/model-jaggedness/jev-1.13)
 
-Its confidence statistic concerns the model's answer distribution; it is not patient risk or source completeness. Use it to fall back on uncertain preference/category decisions. [Confidence](https://docs.typesafe.ai/confidence) API access and latency have not been tested. The [integration proposal](/home/hashim/ENIGMA_FANTASTIC_4/typesafe-jev-integration-plan.md) specifies backend boundaries, a sample request, persistence, evaluation, and the 24-hour sequence.
+Its confidence statistic concerns the model's answer distribution; it is not patient risk or source completeness. Use it to fall back on uncertain preference/category decisions. [Confidence](https://docs.typesafe.ai/confidence) API access and latency have not been tested. The [integration proposal](typesafe-jev-integration-plan.md) specifies backend boundaries, a sample request, persistence, evaluation, and the 24-hour sequence.
 
 Treat label text and retrieved pages as data, including any text that resembles model instructions. Missing or unreadable values stay null. If the model times out or produces unsupported output, retain editable manual input and deterministic assessment/recommendation behavior.
 

@@ -1,6 +1,6 @@
 # Personalized dietary guidance and replacement engine
 
-Status: architectural proposal for discussion; no application code has been implemented.
+> Status: superseded — kept for provenance; current behaviour lives in `backend/README.md`. Banner added 2026-09-26. The assessment and replacement engines it proposed are now implemented in `backend/app/services/`; the proposal text below is retained as design history.
 
 ## Confirmed product direction
 
@@ -445,4 +445,4 @@ Preserve the replacement gate before any semantic scoring. Neither a model's pre
 
 Keep Jev behind the existing recommendation endpoint, with server-owned candidate IDs and minimal preference context. Store ranking method, model/rubric versions, accepted scores, duration, and fallback reason in recommendation metadata. No separate model microservice or additional database is needed.
 
-The [TypeSafe integration proposal](/home/hashim/ENIGMA_FANTASTIC_4/typesafe-jev-integration-plan.md) includes a concrete typed request and evaluation plan. The [competitor and FitFork review](/home/hashim/ENIGMA_FANTASTIC_4/competitor-and-fitfork-research.md) identifies reusable source patterns and dataset limitations. These are proposed changes to the architecture; no application or model integration has been executed.
+The [TypeSafe integration proposal](typesafe-jev-integration-plan.md) includes a concrete typed request and evaluation plan. The [competitor and FitFork review](competitor-and-fitfork-research.md) identifies reusable source patterns and dataset limitations. These were proposed changes to the architecture; both were subsequently implemented in the backend (see [`../../backend/README.md`](../../backend/README.md)).

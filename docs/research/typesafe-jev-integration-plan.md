@@ -1,6 +1,6 @@
 # TypeSafe Jev integration proposal
 
-Research date: 26 September 2026. Status: researched architecture proposal; no API call, SDK installation, purchase, or runtime benchmark performed.
+> Status: superseded — kept for provenance; current behaviour lives in `backend/README.md`. Banner added 2026-09-26; the live adapter was built and a bounded live contract check passed on 2026-09-26 (see `backend/scripts/provider-live-verification.md`).
 
 ## Decision
 

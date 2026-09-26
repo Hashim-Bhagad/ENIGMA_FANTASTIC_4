@@ -1,5 +1,7 @@
 # Personalized Hidden-Ingredient & Dietary-Risk Alert System — Project Notes (PS 3)
 
+> Status: historical notes. Banner added 2026-09-26; the original problem-statement notes, retained for context.
+
 ## Problem Statement
 
 Millions of people managing chronic conditions — diabetes, CKD, food allergies, PCOS, hypertension — are silently harmed by what they eat, not because they're careless, but because the danger is invisible. A "sugar-free" biscuit can be loaded with maida and hidden syrups; a "healthy" salad can carry a sodium load that spikes blood pressure; a common spice mix can contain an allergen never clearly listed. Doctors give a generic "avoid oily and sugary food" instruction in a five-minute appointment, but nobody translates that into the dozens of real food decisions a patient makes every day at a store, a tiffin service, or a wedding buffet. Existing ingredient-scanning apps solve a lifestyle problem (vegan or not) — none solve a clinical one, where the wrong bite can trigger a hospital visit.

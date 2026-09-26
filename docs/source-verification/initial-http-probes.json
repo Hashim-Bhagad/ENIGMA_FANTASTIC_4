@@ -1,0 +1,88 @@
+[
+  {
+    "name": "ifct_compositions",
+    "url": "https://raw.githubusercontent.com/nodef/ifct2017/main/compositions/index.csv",
+    "status": 200,
+    "bytes": 1154715,
+    "content_type": "text/plain; charset=utf-8",
+    "seconds": 0.54
+  },
+  {
+    "name": "ifct_units",
+    "url": "https://raw.githubusercontent.com/nodef/ifct2017/main/representations/index.csv",
+    "status": 200,
+    "bytes": 4194,
+    "content_type": "text/plain; charset=utf-8",
+    "seconds": 0.41
+  },
+  {
+    "name": "ifct_about",
+    "url": "https://raw.githubusercontent.com/nodef/ifct2017/main/about/index.csv",
+    "status": 404,
+    "error": "Not Found",
+    "seconds": 0.41
+  },
+  {
+    "name": "ifct_license",
+    "url": "https://raw.githubusercontent.com/nodef/ifct2017/main/LICENSE",
+    "status": 200,
+    "bytes": 34523,
+    "content_type": "text/plain; charset=utf-8",
+    "seconds": 1.37
+  },
+  {
+    "name": "food_actor",
+    "url": "https://api.apify.com/v2/acts/L9lMlZe30ghx2Zdv3",
+    "status": 200,
+    "bytes": 5420,
+    "content_type": "application/json; charset=utf-8",
+    "seconds": 0.74
+  },
+  {
+    "name": "off_actor",
+    "url": "https://api.apify.com/v2/acts/PzgRbpqGm0t5TBWKy",
+    "status": 200,
+    "bytes": 4159,
+    "content_type": "application/json; charset=utf-8",
+    "seconds": 0.74
+  },
+  {
+    "name": "off_run",
+    "url": "https://api.apify.com/v2/actor-runs/svCjf5DtStMudLn88",
+    "status": 200,
+    "bytes": 1834,
+    "content_type": "application/json; charset=utf-8",
+    "seconds": 0.67
+  },
+  {
+    "name": "barcode",
+    "url": "https://barcode-list.com/barcode/EN/Search.htm?barcode=haldiram",
+    "status": 200,
+    "bytes": 71529,
+    "content_type": "text/html; charset=UTF-8",
+    "seconds": 1.78
+  },
+  {
+    "name": "off_product",
+    "url": "https://world.openfoodfacts.org/api/v3/product/3017620422003.json",
+    "status": 200,
+    "bytes": 152971,
+    "content_type": "application/json; charset=utf-8",
+    "seconds": 11.68
+  },
+  {
+    "name": "off_search",
+    "url": "https://world.openfoodfacts.org/cgi/search.pl?search_terms=haldiram&search_simple=1&action=process&json=1&page_size=5",
+    "status": 200,
+    "bytes": 154114,
+    "content_type": "application/json; charset=utf-8",
+    "seconds": 15.67
+  },
+  {
+    "name": "jev_models",
+    "url": "https://api.typesafe.ai/v1/models",
+    "status": 403,
+    "error": "Forbidden",
+    "seconds": 0.6
+  }
+]

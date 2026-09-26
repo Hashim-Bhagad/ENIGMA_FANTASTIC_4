@@ -2,7 +2,7 @@
 
 Reviewed: 26 September 2026.
 
-Status: working planning document, not an approved implementation specification.
+> Status: superseded — kept for provenance; current behaviour lives in `backend/README.md`. Banner added 2026-09-26; this was a working planning document, not an approved implementation specification.
 
 ## Confirmed context
 
@@ -17,7 +17,7 @@ Status: working planning document, not an approved implementation specification.
 - PostgreSQL is the confirmed persistent database.
 - User sign-in and saved personal profiles are confirmed first-release requirements.
 - LLM assistance for parsing/recommendations is explicitly allowed. The user identified TypeSafe Jev for investigation; its use below is a researched proposal, not an implemented dependency.
-- The existing repository contains research notes; no application implementation was found.
+- At review time the repository contained only research notes; the implementation has since been built (see the banner above).
 - The original feature requests cover packaged-food search, barcode/label scanning, dish questions, recommendations, and FSSAI information.
 - Expo tooling, target demo phones, individual skills, condition scope, and available budget have not yet been confirmed.
 
@@ -59,7 +59,7 @@ The existing FSSAI distinction is useful: licensing and establishment hygiene in
 | B. LLM-led interpretation and recommendations | Can handle varied text and produce fluent explanations quickly. | Harder to prevent invented ingredients, inconsistent decisions, and unsupported medical claims. |
 | C. Broad multi-API nutrition platform | More search and recommendation breadth. | Integration work and inconsistent data consume time before the core decision flow works. |
 
-Start with A. Use a multimodal model or OCR for editable label extraction. TypeSafe Jev can optionally make bounded category/preference judgments and help order already eligible improvements. Python makes findings from confirmed data and performs numerical comparisons. Explanation templates remain sufficient; a generative model may reword grounded findings. Models must not change restrictions, thresholds, or missing-data status. See [the researched model integration plan](/home/hashim/ENIGMA_FANTASTIC_4/typesafe-jev-integration-plan.md) and [competitor/FitFork assessment](/home/hashim/ENIGMA_FANTASTIC_4/competitor-and-fitfork-research.md).
+Start with A. Use a multimodal model or OCR for editable label extraction. TypeSafe Jev can optionally make bounded category/preference judgments and help order already eligible improvements. Python makes findings from confirmed data and performs numerical comparisons. Explanation templates remain sufficient; a generative model may reword grounded findings. Models must not change restrictions, thresholds, or missing-data status. See [the researched model integration plan](typesafe-jev-integration-plan.md) and [competitor/FitFork assessment](competitor-and-fitfork-research.md).
 
 ## Proposed first-release scope
 
