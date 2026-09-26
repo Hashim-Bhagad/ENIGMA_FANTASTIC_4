@@ -6,6 +6,7 @@ from app.services.ingredient_taxonomy import (
     ambiguous_ingredient_mentions,
     is_negated,
     match_ingredients,
+    normalized_view,
 )
 
 RULE_VERSION = "prototype-2026-09-26.5"
@@ -62,10 +63,30 @@ SOURCE_LABELS = {
 
 
 def phrase_matches(text: str, phrase: str) -> bool:
+    """Match a phrase in the same normalized view the taxonomy matcher uses.
+
+    NFKC, casefolding, dash/quote mapping and whitespace collapsing happen once, then
+    match offsets are mapped back so negation detection still reads the original text.
+    Without this, a declaration differing only by compatibility forms or a non-breaking
+    space was recognized for ingredient names but missed for allergen conflicts.
+    """
+    if not text or not phrase:
+        return False
+    normalized, spans = normalized_view(text)
+    normalized_phrase = normalized_view(phrase)[0].strip()
+    if not normalized_phrase:
+        return False
     # A hyphen joins a compound label (e.g. sugar-free); it is not a boundary
     # proving that the standalone ingredient "sugar" was declared.
-    pattern = re.compile(r"(?<![\w-])" + re.escape(phrase) + r"(?![\w-])", re.I)
-    return any(not is_negated(text, item.start(), item.end()) for item in pattern.finditer(text))
+    pattern = re.compile(r"(?<![\w-])" + re.escape(normalized_phrase) + r"(?![\w-])")
+    for item in pattern.finditer(normalized):
+        if item.end() > len(spans):
+            continue
+        source_start = spans[item.start()][0]
+        source_end = spans[item.end() - 1][1]
+        if not is_negated(text, source_start, source_end):
+            return True
+    return False
 
 
 def _matches_exclusion(phrase: str, ingredient_findings: list[dict], declared: str) -> list[str]:
@@ -83,6 +104,9 @@ def _matches_exclusion(phrase: str, ingredient_findings: list[dict], declared: s
                         and finding["canonical_group"] == "sugars"
                     )
                     or (excluded["canonical_identity"] == finding["canonical_identity"])
+                    # A family name ("sugar alcohol", "polyol") covers every member of that
+                    # subtype; a single member ("xylitol") still only matches itself.
+                    or (excluded.get("umbrella") and excluded["subtype"] == finding["subtype"])
                 )
                 if same_concept and finding["raw_evidence"] not in evidence:
                     evidence.append(finding["raw_evidence"])

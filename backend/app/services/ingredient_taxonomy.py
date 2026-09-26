@@ -20,6 +20,9 @@ class Term:
     subtype: str
     canonical_identity: str
     wheat_allergen: bool = False
+    # An umbrella alias names the whole subtype (e.g. "sugar alcohol") rather than one
+    # member, so a user exclusion of it also covers the members of that subtype.
+    umbrella: bool = False
 
 
 def _terms(
@@ -29,10 +32,19 @@ def _terms(
     *,
     wheat=False,
     identities: dict[str, str] | None = None,
+    umbrella: tuple[str, ...] = (),
 ):
     identities = identities or {}
     return tuple(
-        Term(x, group, subtype, identities.get(x, f"alias:{x.casefold()}"), wheat) for x in aliases
+        Term(
+            x,
+            group,
+            subtype,
+            identities.get(x, f"alias:{x.casefold()}"),
+            wheat,
+            x in umbrella,
+        )
+        for x in aliases
     )
 
 
@@ -291,6 +303,7 @@ TERMS = (
             "hydrogenated starch hydrolysates",
             "polyglycitol syrup",
         ),
+        umbrella=("sugar alcohol", "sugar alcohols", "polyol", "polyols"),
     ),
     *_terms(
         "sweeteners",
@@ -389,6 +402,17 @@ def is_negated(text: str, start: int, end: int) -> bool:
     )
 
 
+def normalized_view(text: str) -> tuple[str, list[tuple[int, int]]]:
+    """Normalized text plus each character's source span.
+
+    Every matcher (ingredient names, allergens, exclusions) must search the same
+    normalized view; otherwise a declaration that differs only by compatibility
+    forms, non-breaking spaces or dash variants is recognized for one check and
+    missed for another.
+    """
+    return _normalize_with_offsets(text)
+
+
 def match_ingredients(text: str | None) -> list[dict]:
     """Return longest non-overlapping known phrases, including raw evidence spans."""
     if not text:
@@ -416,6 +440,7 @@ def match_ingredients(text: str | None) -> list[dict]:
                     "start": source_start,
                     "end": source_end,
                     "wheat_allergen": term.wheat_allergen,
+                    "umbrella": term.umbrella,
                 }
             )
     matches.sort(key=lambda item: (item["start"], item["end"]))

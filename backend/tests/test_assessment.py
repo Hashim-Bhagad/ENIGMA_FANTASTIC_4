@@ -235,6 +235,7 @@ def test_negated_ingredient_claims_are_not_reported_as_declared_ingredients():
             "start": source.index("rice flour"),
             "end": source.index("rice flour") + len("rice flour"),
             "wheat_allergen": False,
+            "umbrella": False,
         }
     ]
     assert not any(
@@ -323,3 +324,25 @@ def test_unqualified_wheat_flour_does_not_match_maida_exclusion_and_stays_uncert
         )["subtype"]
         == "wheat_flour_unspecified"
     )
+
+
+def test_umbrella_exclusion_covers_family_members_but_single_member_does_not():
+    """`sugar alcohol` is a family name; `xylitol` stays a single member."""
+    declaration = food(ingredients_text="Sorbitol, water")
+
+    family = assess(ProfileData(ingredient_exclusions=["sugar alcohol"]), declaration)
+    assert [item["code"] for item in family["conflicts"]] == ["exclusion_declared_match"]
+    assert family["conflicts"][0]["evidence"] == ["Sorbitol"]
+
+    single = assess(ProfileData(ingredient_exclusions=["xylitol"]), declaration)
+    assert single["conflicts"] == [], "a single polyol must not stand in for another member"
+
+
+def test_allergen_matching_uses_the_shared_normalized_view():
+    """A compatibility-form or NBSP declaration must not be missed by allergen checks."""
+    result = assess(
+        ProfileData(allergies=["milk"]),
+        food(name="Milk powder sachet", ingredients_text="ＭＩＬＫ\u00a0powder, sugar"),
+    )
+    assert [item["code"] for item in result["conflicts"]] == ["allergen_declared"]
+    assert result["conflicts"][0]["evidence"] == ["milk"]
