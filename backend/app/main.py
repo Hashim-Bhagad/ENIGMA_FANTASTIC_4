@@ -168,7 +168,7 @@ def create_app(settings: Settings | None = None):
         recipes.router,
         verification.router,
     ]
-    for module_name in ("dishes", "reports", "intake", "conditions"):
+    for module_name in ("dishes", "reports", "intake", "conditions", "barcodes"):
         if importlib.util.find_spec(f"app.api.{module_name}") is not None:
             module = importlib.import_module(f"app.api.{module_name}")
             routers.append(module.router)

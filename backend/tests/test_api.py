@@ -478,9 +478,12 @@ def test_auth_rate_limit_returns_429_with_retry_after(client, monkeypatch):
 
 
 def test_request_body_cap_returns_413(client):
+    # Sized from the configured ceiling so raising the limit does not silently turn this
+    # into a route-validation test (it did: the payload used to fit after the cap moved).
+    oversized = get_settings().max_body_bytes + 1024
     response = client.post(
         "/api/auth/register",
-        json={"email": "huge@example.com", "password": "x" * (7 * 1024 * 1024)},
+        json={"email": "huge@example.com", "password": "x" * oversized},
     )
     assert response.status_code == 413, response.text
     assert response.json()["code"] == "payload_too_large"

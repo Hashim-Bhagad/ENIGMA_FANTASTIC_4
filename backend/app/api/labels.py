@@ -51,7 +51,11 @@ async def extract(
         barcode = barcode or None
     content = await file.read(5 * 1024 * 1024 + 1)
     if len(content) > 5 * 1024 * 1024:
-        raise HTTPException(413, "Image must be at most 5 MB")
+        raise HTTPException(
+            413,
+            f"Photo is {len(content) / 1048576:.1f} MB; the limit is 5 MB. "
+            "Retake it at a lower resolution.",
+        )
     if not content:
         raise HTTPException(422, "The uploaded file was empty; choose the photo again")
     try:

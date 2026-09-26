@@ -50,10 +50,13 @@ class Settings(BaseSettings):
     rate_limit_report_extract_per_minute: int = Field(default=10, ge=1, le=10000)
     rate_limit_provider_reads_per_minute: int = Field(default=30, ge=1, le=10000)
     rate_limit_recommendations_per_minute: int = Field(default=20, ge=1, le=10000)
+    rate_limit_barcode_scan_per_minute: int = Field(default=20, ge=1, le=10000)
     rate_limit_dish_draft_per_minute: int = Field(default=10, ge=1, le=10000)
     rate_limit_recipes_live_per_minute: int = Field(default=5, ge=1, le=10000)
     # Reject any request body larger than this before a route can buffer it.
-    max_body_bytes: int = Field(default=6 * 1024 * 1024, ge=1024)
+    # Phone photos are routinely 5-10 MiB; the upload routes keep their own tighter caps
+    # and explain them, so this ceiling only stops runaway bodies.
+    max_body_bytes: int = Field(default=16 * 1024 * 1024, ge=1024)
     log_level: str = "INFO"
 
     @field_validator(
