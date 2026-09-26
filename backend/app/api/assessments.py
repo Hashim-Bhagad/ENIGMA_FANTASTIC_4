@@ -1,11 +1,21 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.accounts import owned_profile
 from app.db import get_session
+from app.errors import ApiError
 from app.models import Assessment, Product, Profile, RecommendationRun, User
-from app.schemas import AssessmentRequest, FoodObservation, ProfileData, RecommendationRequest
+from app.rate_limit import rate_limit
+from app.schemas import (
+    AssessmentHistory,
+    AssessmentRequest,
+    AssessmentResponse,
+    FoodObservation,
+    ProfileData,
+    RecommendationRecord,
+    RecommendationRequest,
+)
 from app.security import current_user
 from app.services.assessment import assess
 from app.services.provenance import product_provenance
@@ -19,6 +29,7 @@ def assessment_response(record: Assessment):
         "id": record.id,
         "profile_id": record.profile_id,
         "profile_version": record.profile_version,
+        "profile_snapshot": record.profile_snapshot,
         "food": record.food_snapshot,
         "result": record.result,
         "created_at": record.created_at.isoformat(),
@@ -26,15 +37,16 @@ def assessment_response(record: Assessment):
 
 
 def owned_assessment(session: Session, user_id: str, record_id: str):
+    # Request bodies carry UUID objects; the column stores the canonical string form.
     record = session.scalar(
-        select(Assessment).where(Assessment.id == record_id, Assessment.owner_id == user_id)
+        select(Assessment).where(Assessment.id == str(record_id), Assessment.owner_id == user_id)
     )
     if record is None:
         raise HTTPException(404, "Assessment not found")
     return record
 
 
-@router.post("/assessments", status_code=201)
+@router.post("/assessments", status_code=201, response_model=AssessmentResponse)
 def create_assessment(
     body: AssessmentRequest,
     user: User = Depends(current_user),
@@ -42,12 +54,12 @@ def create_assessment(
 ):
     profile = owned_profile(session, user.id, body.profile_id)
     if profile.version != body.profile_version:
-        raise HTTPException(409, "Profile changed; reload before assessment")
+        raise ApiError(409, "profile_version_stale", "Profile changed; reload before assessment")
     profile_data = ProfileData.model_validate(profile.data)
     # Lock/check the profile version through the write so an edit cannot silently race this snapshot.
     session.refresh(profile, with_for_update=True)
     if profile.version != body.profile_version:
-        raise HTTPException(409, "Profile changed; reload before assessment")
+        raise ApiError(409, "profile_version_stale", "Profile changed; reload before assessment")
     source_trace = None
     if body.food.barcode:
         product = session.scalar(select(Product).where(Product.barcode == body.food.barcode))
@@ -92,17 +104,19 @@ def create_assessment(
     return assessment_response(record)
 
 
-@router.get("/assessments")
+@router.get("/assessments", response_model=AssessmentHistory)
 def history(
     limit: int = Query(default=20, ge=1, le=50),
     offset: int = Query(default=0, ge=0),
     user: User = Depends(current_user),
     session: Session = Depends(get_session),
 ):
+    owner = Assessment.owner_id == user.id
+    total = session.scalar(select(func.count()).select_from(Assessment).where(owner)) or 0
     records = session.scalars(
         select(Assessment)
-        .where(Assessment.owner_id == user.id)
-        .order_by(Assessment.created_at.desc())
+        .where(owner)
+        .order_by(Assessment.created_at.desc(), Assessment.id.desc())
         .offset(offset)
         .limit(limit)
     )
@@ -110,17 +124,23 @@ def history(
         "assessments": [assessment_response(x) for x in records],
         "limit": limit,
         "offset": offset,
+        "total": total,
     }
 
 
-@router.get("/assessments/{record_id}")
+@router.get("/assessments/{record_id}", response_model=AssessmentResponse)
 def assessment_detail(
     record_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)
 ):
     return assessment_response(owned_assessment(session, user.id, record_id))
 
 
-@router.post("/recommendations", status_code=201)
+@router.post(
+    "/recommendations",
+    status_code=201,
+    response_model=RecommendationRecord,
+    dependencies=[Depends(rate_limit("recommendations", 20, 60, "user"))],
+)
 async def recommend(
     body: RecommendationRequest,
     request: Request,
@@ -130,13 +150,17 @@ async def recommend(
     assessment = owned_assessment(session, user.id, body.assessment_id)
     profile = owned_profile(session, user.id, assessment.profile_id)
     if profile.version != assessment.profile_version:
-        raise HTTPException(
-            409, "Profile changed; create a new assessment before requesting replacements"
+        raise ApiError(
+            409,
+            "profile_version_stale",
+            "Profile changed; create a new assessment before requesting replacements",
         )
     data, food = (
         ProfileData.model_validate(assessment.profile_snapshot),
         FoodObservation.model_validate(assessment.food_snapshot),
     )
+    if food.source.kind == "dish":
+        raise HTTPException(422, "Recommendations are not offered for cooked dishes")
     products = (
         list(
             session.scalars(
@@ -168,14 +192,18 @@ async def recommend(
         .with_for_update()
     )
     if current is None or current.version != profile_version:
-        raise HTTPException(409, "Profile changed during recommendation; create a new assessment")
+        raise ApiError(
+            409,
+            "profile_version_stale",
+            "Profile changed during recommendation; create a new assessment",
+        )
     record = RecommendationRun(owner_id=owner_id, assessment_id=assessment_id, result=result)
     session.add(record)
     session.commit()
     return {"id": record.id, "assessment_id": assessment_id, **result}
 
 
-@router.get("/recommendations/{record_id}")
+@router.get("/recommendations/{record_id}", response_model=RecommendationRecord)
 def recommendation_detail(
     record_id: str, user: User = Depends(current_user), session: Session = Depends(get_session)
 ):

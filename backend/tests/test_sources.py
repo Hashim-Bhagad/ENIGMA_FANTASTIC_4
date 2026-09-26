@@ -1,10 +1,11 @@
 import csv
 import io
 
+import pytest
 from sqlalchemy.orm import Session
 
 from app.catalog import store_off, store_product
-from app.importers import normalize_ifct
+from app.importers import import_records, normalize_ifct
 from app.integrations.off import normalize_apify_off, normalize_off
 
 
@@ -221,3 +222,66 @@ def test_catalog_keeps_unmapped_category_unknown_on_refresh(db_engine):
         )
         session.commit()
         assert refreshed.category is None
+
+
+def test_apify_barcode_never_stringifies_a_container():
+    for bad in ({"unexpected": True}, ["8904004400052"], True):
+        with pytest.raises(ValueError):
+            normalize_apify_off({"product_name": "Bad row", "barcode": bad}, "h5n0pJBId8vHhHMNT")
+    result = normalize_apify_off(
+        {"product_name": "Soft row", "barcode": "abc"}, "h5n0pJBId8vHhHMNT"
+    )
+    assert result.barcode is None
+    assert any("barcode" in warning for warning in result.source.warnings)
+
+
+def test_apify_import_skips_a_bad_row_without_aborting_the_batch(db_engine):
+    records = [
+        {"product_name": "Good one", "barcode": "8904004400052"},
+        {"product_name": "Unusable", "barcode": {"nested": "object"}},
+        {"product_name": "Good two", "barcode": "12345678"},
+    ]
+    with Session(db_engine) as session:
+        summary = import_records(session, records, "off", "h5n0pJBId8vHhHMNT")
+        session.commit()
+    assert summary["imported"] == 2
+    assert summary["skipped"] == 1
+    assert summary["skipped_reasons"][0]["record_index"] == 1
+
+
+def test_catalog_collision_on_barcode_never_resources_another_kind(db_engine):
+    from app.schemas import FoodObservation
+
+    demo = FoodObservation.model_validate(
+        {
+            "name": "Reviewed demo cracker",
+            "barcode": "12345678",
+            "category": "crackers",
+            "basis": "100g",
+            "ingredients_text": "Rice flour",
+            "advisories_text": "",
+            "ingredients_complete": True,
+            "advisories_complete": True,
+            "nutrients": {"sodium_mg": 200},
+            "source": {"kind": "demo", "reference": "Synthetic"},
+        }
+    )
+    with Session(db_engine) as session:
+        existing = store_product(session, demo, "demo-collision", {"demo": True})
+        session.commit()
+        returned = store_off(
+            session,
+            {
+                "code": "12345678",
+                "product_name": "Community variant",
+                "categories_tags": ["en:crackers-appetizers"],
+                "nutrition_data_per": "100g",
+                "nutriments": {"sodium_100g": 0.9},
+            },
+        )
+        assert returned.id == existing.id
+        assert returned.source_kind == "demo"
+        assert returned.observation["name"] == "Reviewed demo cracker"
+        assert any(
+            "already belongs" in warning for warning in returned.observation["source"]["warnings"]
+        )

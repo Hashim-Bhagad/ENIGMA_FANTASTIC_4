@@ -89,22 +89,42 @@ def product_provenance(product: Product) -> dict:
             )
             raw_key = next((key for key in choices if raw.get(key)), None)
             source_value = raw.get(raw_key) if raw_key else None
+        value = food.get(target)
+        complete = (
+            food.get("ingredients_complete")
+            if target == "ingredients_text"
+            else food.get("advisories_complete")
+            if target == "advisories_text"
+            else None
+        )
+        if complete and not value:
+            # An explicitly empty statement that review marked complete is a
+            # confirmed absence, not missing information.
+            status = "confirmed_absent"
+            reason = (
+                "Review explicitly confirmed the advisory panel contains no statement."
+                if target == "advisories_text"
+                else "Review explicitly confirmed the ingredient declaration is empty."
+            )
+        elif value:
+            status, reason = "available", "Saved source observation"
+        else:
+            status, reason = "missing", "No usable text in the saved observation"
         fields.append(
             {
                 "field": target,
-                "status": "available" if food.get(target) else "missing",
+                "status": status,
+                "complete": complete,
                 "source_field": raw_key,
                 "source_value": source_value,
                 "source_unit": None,
-                "value": food.get(target),
+                "value": value,
                 "unit": None,
                 "basis": None,
                 "transformation": "Ingredient declaration and embedded precautionary statements are separated by code"
                 if target != "name" and product.source_kind == "openfoodfacts"
                 else None,
-                "reason": "Saved source observation"
-                if food.get(target)
-                else "No usable text in the saved observation",
+                "reason": reason,
             }
         )
 

@@ -1,0 +1,35 @@
+SafeBitez
+=========
+
+The MIT license in `LICENSE` covers the source code of this repository only.
+It does not cover third-party data that the application downloads, imports,
+queries, or displays. Those data keep their own licenses and rights, summarised
+below. Nothing in this repository redistributes the downloaded datasets: they
+are fetched at runtime or during an explicit import and stay out of version
+control and the Docker build context (see the root `.gitignore` and
+`backend/.dockerignore`).
+
+IFCT reference data
+-------------------
+The Indian Food Composition Tables (IFCT 2017) reference values used by the
+`ifct` importer are published under the GNU Affero General Public License,
+version 3 or later (AGPL-3.0-or-later). Redistributing the tables, or a
+modified version of them, additionally requires the separate rights granted by
+the source book publisher. This repository does not bundle the IFCT dataset;
+`python -m app.importers ifct --download` fetches it on demand. Anyone who
+redistributes imported IFCT data must comply with the AGPL and obtain the
+publisher's separate rights.
+
+Open Food Facts
+---------------
+Product records retrieved from Open Food Facts are made available under the
+Open Database License (ODbL) v1.0. Attribution to Open Food Facts and
+share-alike terms apply to derived databases. This repository stores only what
+a user lookup or search fetches at runtime.
+
+Network-fetched data in general
+-------------------------------
+Barcode lookups, product name searches, label-photo extraction, and dish
+assessment send or retrieve data over the network. That fetched data is not
+redistributed in this repository, and the terms of each upstream source govern
+its use, attribution, and redistribution.

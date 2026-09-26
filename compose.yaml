@@ -1,0 +1,45 @@
+name: dietary-risk
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: dietary
+      POSTGRES_USER: dietary
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in backend/.env}
+    ports:
+      - "127.0.0.1:${DB_PORT:-5433}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dietary -d dietary"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+  api:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://dietary:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@db:5432/dietary
+      JWT_SECRET: ${JWT_SECRET:?Set a random JWT_SECRET in backend/.env}
+      CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:8081","http://localhost:19006"]}
+      OFF_USER_AGENT: ${OFF_USER_AGENT:-DietaryRiskPrototype/0.1 (local hackathon prototype)}
+      APIFY_TOKEN: ${APIFY_TOKEN:-}
+      TYPESAFE_API_KEY: ${TYPESAFE_API_KEY:-}
+      FIREWORKS_API_KEY: ${FIREWORKS_API_KEY:-}
+      TYPESAFE_MODEL: ${TYPESAFE_MODEL:-jev-1.13.0}
+      FIREWORKS_MODEL: ${FIREWORKS_MODEL:-accounts/fireworks/models/deepseek-v4p1-flash}
+      LABEL_MAX_TOKENS: ${LABEL_MAX_TOKENS:-2048}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+      RATE_LIMIT_AUTH_PER_MINUTE: ${RATE_LIMIT_AUTH_PER_MINUTE:-10}
+      RATE_LIMIT_LABEL_EXTRACT_PER_MINUTE: ${RATE_LIMIT_LABEL_EXTRACT_PER_MINUTE:-10}
+      RATE_LIMIT_PROVIDER_READS_PER_MINUTE: ${RATE_LIMIT_PROVIDER_READS_PER_MINUTE:-30}
+      RATE_LIMIT_RECOMMENDATIONS_PER_MINUTE: ${RATE_LIMIT_RECOMMENDATIONS_PER_MINUTE:-20}
+      MAX_BODY_BYTES: ${MAX_BODY_BYTES:-6291456}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+volumes:
+  postgres_data:

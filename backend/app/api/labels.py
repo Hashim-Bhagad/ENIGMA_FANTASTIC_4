@@ -1,17 +1,29 @@
 import io
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from PIL import Image, UnidentifiedImageError
 
 from app.integrations.off import ProviderError
 from app.models import User
+from app.rate_limit import rate_limit
 from app.security import current_user
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/labels", tags=["label extraction"])
 
 
-@router.post("/extract")
+@router.post(
+    "/extract",
+    dependencies=[Depends(rate_limit("label_extract", 10, 60, "user"))],
+)
 async def extract(request: Request, file: UploadFile, user: User = Depends(current_user)):
+    """Extract a label observation from a photo. Requires a bearer token.
+
+    Rate-limited per user. The route keeps its own 5 MiB read cap for the image
+    in addition to the global request body cap.
+    """
     content = await file.read(5 * 1024 * 1024 + 1)
     if len(content) > 5 * 1024 * 1024:
         raise HTTPException(413, "Image must be at most 5 MB")
@@ -26,5 +38,6 @@ async def extract(request: Request, file: UploadFile, user: User = Depends(curre
     try:
         food = await request.app.state.models.extract_label(content, mime_type)
     except ProviderError as exc:
+        logger.warning("label extraction failed: %s", type(exc).__name__)
         raise HTTPException(503, str(exc)) from exc
     return {"food": food.model_dump(mode="json"), "confirmation_required": True}

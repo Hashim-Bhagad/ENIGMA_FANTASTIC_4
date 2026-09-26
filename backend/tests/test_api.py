@@ -1,11 +1,13 @@
 from datetime import UTC, datetime, timedelta
+from uuid import uuid4
 
 import jwt
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app import rate_limit as rate_limit_module
 from app.catalog import store_product
-from app.config import get_settings
+from app.config import Settings, get_settings
 from app.integrations.off import ProviderError
 from app.schemas import FoodObservation
 from tests.conftest import signup
@@ -60,14 +62,24 @@ def test_register_login_reload_and_stale_profile_write(client):
         "/api/profiles/me", headers={"Authorization": "Bearer " + login.json()["access_token"]}
     )
     assert reloaded.json() == saved
+    changed = {**saved["data"], "preferences": "no nuts"}
     edit = client.put(
-        "/api/profiles/me", headers=headers, json={"expected_version": 1, "data": saved["data"]}
+        "/api/profiles/me", headers=headers, json={"expected_version": 1, "data": changed}
     )
     assert edit.json()["version"] == 2
+    # A retry with the same payload must not bump the version again or 409.
+    retry = client.put(
+        "/api/profiles/me", headers=headers, json={"expected_version": 1, "data": changed}
+    )
+    assert retry.status_code == 200
+    assert retry.json()["version"] == 2
+    assert retry.json() == edit.json()
+    # A different payload at a stale version is still a conflict.
     stale = client.put(
         "/api/profiles/me", headers=headers, json={"expected_version": 1, "data": saved["data"]}
     )
     assert stale.status_code == 409
+    assert stale.json()["code"] == "profile_version_stale"
     wrong = client.post("/api/auth/login", json={"email": "first@example.com", "password": "wrong"})
     assert wrong.status_code == 401
 
@@ -114,7 +126,12 @@ def test_profile_change_requires_reassessment(client):
     profile = save_profile(client, headers)
     result = assessment(client, headers, profile)
     client.put(
-        "/api/profiles/me", headers=headers, json={"expected_version": 1, "data": profile["data"]}
+        "/api/profiles/me",
+        headers=headers,
+        json={
+            "expected_version": 1,
+            "data": {**profile["data"], "allergies": ["milk", "soy"]},
+        },
     )
     assert (
         client.post(
@@ -152,20 +169,50 @@ def test_expired_and_invalid_tokens(client):
 
 
 def test_unified_search_routes_scanned_barcode_and_product_name(client, db_engine):
+    headers = signup(client)
     with Session(db_engine) as session:
         food = FoodObservation.model_validate({**FOOD, "barcode": "8904004400052"})
         store_product(session, food, "barcode-fixture", {"brands": "Haldiram"})
         session.commit()
-    barcode = client.get("/api/products/search", params={"q": "8904004400052"})
+    barcode = client.get("/api/products/search", params={"q": "8904004400052"}, headers=headers)
     assert barcode.status_code == 200, barcode.text
+    assert barcode.headers["Cache-Control"] == "no-store"
     assert barcode.json()["query_type"] == "barcode"
     assert barcode.json()["lookup_source"] == "saved_snapshot"
-    brand = client.get("/api/products/search", params={"q": "haldiram"})
+    brand = client.get("/api/products/search", params={"q": "haldiram"}, headers=headers)
     assert len(brand.json()["products"]) == 1
-    assert client.get("/api/products/search", params={"q": "  "}).status_code == 422
+    assert (
+        client.get("/api/products/search", params={"q": "  "}, headers=headers).status_code == 422
+    )
+
+
+def test_saved_products_support_offset_and_report_total(client, db_engine):
+    headers = signup(client)
+    with Session(db_engine) as session:
+        for index in range(3):
+            store_product(
+                session,
+                FoodObservation.model_validate({**FOOD, "name": f"Paged cracker {index}"}),
+                f"paged-{index}",
+                {},
+            )
+        session.commit()
+    first = client.get("/api/products", params={"q": "Paged", "limit": 2}, headers=headers)
+    assert first.status_code == 200, first.text
+    assert first.json()["total"] == 3
+    assert first.json()["offset"] == 0 and first.json()["limit"] == 2
+    assert [x["food"]["name"] for x in first.json()["products"]] == [
+        "Paged cracker 0",
+        "Paged cracker 1",
+    ]
+    second = client.get(
+        "/api/products", params={"q": "Paged", "limit": 2, "offset": 2}, headers=headers
+    )
+    assert [x["food"]["name"] for x in second.json()["products"]] == ["Paged cracker 2"]
 
 
 def test_live_search_failure_retains_saved_results(client, db_engine):
+    headers = signup(client)
     with Session(db_engine) as session:
         store_product(session, FoodObservation.model_validate(FOOD), "fixture", {})
         session.commit()
@@ -175,7 +222,9 @@ def test_live_search_failure_retains_saved_results(client, db_engine):
             raise ProviderError("Unavailable")
 
     client.app.state.off = Unavailable()
-    result = client.get("/api/products/search", params={"q": "crackers", "include_live": True})
+    result = client.get(
+        "/api/products/search", params={"q": "crackers", "include_live": True}, headers=headers
+    )
     assert result.status_code == 200
     assert result.json()["live_status"] == "unavailable"
     assert len(result.json()["products"]) == 1
@@ -216,6 +265,7 @@ def test_readiness_requires_current_nonempty_migration_revision(client, db_engin
 
 
 def test_product_search_escapes_literal_wildcards_and_backslash(client, db_engine):
+    headers = signup(client)
     with Session(db_engine) as session:
         for source_id, name in [("literal", r"100\% crackers"), ("other", "100x crackers")]:
             store_product(
@@ -223,18 +273,22 @@ def test_product_search_escapes_literal_wildcards_and_backslash(client, db_engin
             )
         session.commit()
     for route in ("/api/products", "/api/products/search"):
-        result = client.get(route, params={"q": r"100\%"})
+        result = client.get(route, params={"q": r"100\%"}, headers=headers)
         assert result.status_code == 200
         assert [item["food"]["name"] for item in result.json()["products"]] == [r"100\% crackers"]
-    assert client.get("/api/products/search/live", params={"q": "  "}).status_code == 422
+    assert (
+        client.get("/api/products/search/live", params={"q": "  "}, headers=headers).status_code
+        == 422
+    )
 
 
 def test_food_and_lookup_share_supported_barcode_lengths(client):
     import pytest
     from pydantic import ValidationError
 
+    headers = signup(client)
     for barcode in ("123456789", "12345678901", "١٢٣٤٥٦٧٨"):
-        assert client.get("/api/products/barcode/" + barcode).status_code == 422
+        assert client.get("/api/products/barcode/" + barcode, headers=headers).status_code == 422
         with pytest.raises(ValidationError):
             FoodObservation.model_validate({**FOOD, "barcode": barcode})
     for barcode in ("12345678", "123456789012", "1234567890123", "12345678901234"):
@@ -242,6 +296,7 @@ def test_food_and_lookup_share_supported_barcode_lengths(client):
 
 
 def test_barcode_refresh_keeps_operator_reviewed_label_and_reports_source(client, db_engine):
+    headers = signup(client)
     with Session(db_engine) as session:
         reviewed = FoodObservation.model_validate(
             {
@@ -262,8 +317,158 @@ def test_barcode_refresh_keeps_operator_reviewed_label_and_reports_source(client
             }
 
     client.app.state.off = LiveCommunityRecord()
-    result = client.get("/api/products/barcode/8904004400052", params={"refresh": True})
+    result = client.get(
+        "/api/products/barcode/8904004400052", params={"refresh": True}, headers=headers
+    )
     assert result.status_code == 200
     assert result.json()["lookup_source"] == "reviewed_snapshot"
     assert result.json()["food"]["ingredients_text"] == FOOD["ingredients_text"]
     assert result.json()["food"]["ingredients_complete"] is True
+
+
+def test_source_trace_is_saved_with_corrections_and_survives_catalog_changes(client, db_engine):
+    headers = signup(client)
+    profile = save_profile(client, headers)
+    source = {
+        "kind": "openfoodfacts",
+        "reference": "https://world.openfoodfacts.org/product/3017620422003",
+    }
+    observation = {**FOOD, "barcode": "3017620422003", "source": source}
+    raw = {
+        "code": "3017620422003",
+        "product_name": FOOD["name"],
+        "nutrition_data_per": "100g",
+        "nutriments": {"sodium_100g": 0.8},
+    }
+    with Session(db_engine) as session:
+        product = store_product(
+            session, FoodObservation.model_validate(observation), raw["code"], raw
+        )
+        session.commit()
+        product_id = product.id
+    assert client.get(f"/api/products/{product_id}/provenance", headers=headers).status_code == 200
+    submitted = {
+        **observation,
+        "nutrients": {"sodium_mg": 450},
+        "source": {**source, "edited_fields": ["sodium_mg"]},
+    }
+    response = client.post(
+        "/api/assessments",
+        headers=headers,
+        json={
+            "profile_id": profile["id"],
+            "profile_version": profile["version"],
+            "food": submitted,
+        },
+    )
+    assert response.status_code == 201
+    saved = response.json()
+    assert saved["food"]["nutrients"]["sodium_mg"] == 450
+    assert saved["profile_snapshot"]["allergies"] == ["milk"]
+    assert saved["result"]["source_trace"]["edited_fields"] == ["sodium_mg"]
+    sodium = next(
+        item for item in saved["result"]["source_trace"]["fields"] if item["field"] == "sodium_mg"
+    )
+    assert sodium["source_value"] == 0.8 and sodium["value"] == 800
+    with Session(db_engine) as session:
+        updated = {**observation, "nutrients": {"sodium_mg": 100}}
+        store_product(
+            session,
+            FoodObservation.model_validate(updated),
+            raw["code"],
+            {**raw, "nutriments": {"sodium_100g": 0.1}},
+        )
+        session.commit()
+    reloaded = client.get(f"/api/assessments/{saved['id']}", headers=headers).json()
+    assert reloaded["result"]["source_trace"] == saved["result"]["source_trace"]
+
+
+def test_every_api_route_requires_authentication(client):
+    import io
+
+    from PIL import Image
+
+    assessment_body = {
+        "profile_id": str(uuid4()),
+        "profile_version": 1,
+        "food": {**FOOD, "source": {"kind": "demo", "reference": "auth probe"}},
+    }
+    routes = [
+        ("get", "/api/products", {}),
+        ("get", "/api/products/search", {"params": {"q": "crackers"}}),
+        ("get", "/api/products/search/live", {"params": {"q": "crackers"}}),
+        ("get", "/api/products/barcode/12345678", {}),
+        ("get", "/api/products/unknown-id", {}),
+        ("get", "/api/products/unknown-id/provenance", {}),
+        ("get", "/api/reference-foods", {"params": {"q": "rice"}}),
+        ("get", "/api/auth/me", {}),
+        ("get", "/api/profiles/me", {}),
+        ("put", "/api/profiles/me", {"json": {"data": {}}}),
+        (
+            "post",
+            "/api/profiles/guide",
+            {"json": {"profile_id": str(uuid4()), "profile_version": 1}},
+        ),
+        ("post", "/api/assessments", {"json": assessment_body}),
+        ("get", "/api/assessments", {}),
+        ("get", "/api/assessments/unknown-id", {}),
+        ("post", "/api/recommendations", {"json": {"assessment_id": str(uuid4())}}),
+        ("get", "/api/recommendations/unknown-id", {}),
+        ("get", "/api/dishes/options", {}),
+        (
+            "post",
+            "/api/dishes/assess",
+            {
+                "json": {
+                    "profile_id": str(uuid4()),
+                    "profile_version": 1,
+                    "name": "Probe dish",
+                    "ingredients": [{"text": "rice"}],
+                }
+            },
+        ),
+    ]
+    for method, path, kwargs in routes:
+        response = getattr(client, method)(path, **kwargs)
+        assert response.status_code == 401, (method, path, response.status_code)
+    image = io.BytesIO()
+    Image.new("RGB", (10, 10)).save(image, format="PNG")
+    extract = client.post(
+        "/api/labels/extract", files={"file": ("label.png", image.getvalue(), "image/png")}
+    )
+    assert extract.status_code == 401
+    # Register and login stay open; only token-protected routes are gated.
+    assert (
+        client.post(
+            "/api/auth/register", json={"email": "open@example.com", "password": "too-short"}
+        ).status_code
+        != 401
+    )
+
+
+def test_auth_rate_limit_returns_429_with_retry_after(client, monkeypatch):
+    monkeypatch.setattr(
+        rate_limit_module, "get_settings", lambda: Settings(rate_limit_auth_per_minute=2)
+    )
+    for index in range(2):
+        response = client.post(
+            "/api/auth/register",
+            json={"email": f"throttle{index}@example.com", "password": "A-test-password-123"},
+        )
+        assert response.status_code == 201, response.text
+    throttled = client.post(
+        "/api/auth/register",
+        json={"email": "throttle-blocked@example.com", "password": "A-test-password-123"},
+    )
+    assert throttled.status_code == 429, throttled.text
+    assert throttled.json()["code"] == "rate_limited"
+    assert int(throttled.headers["Retry-After"]) >= 1
+
+
+def test_request_body_cap_returns_413(client):
+    response = client.post(
+        "/api/auth/register",
+        json={"email": "huge@example.com", "password": "x" * (7 * 1024 * 1024)},
+    )
+    assert response.status_code == 413, response.text
+    assert response.json()["code"] == "payload_too_large"

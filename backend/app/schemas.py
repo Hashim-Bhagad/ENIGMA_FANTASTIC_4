@@ -1,4 +1,5 @@
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
@@ -22,6 +23,12 @@ Positive = Annotated[float, Field(gt=0, allow_inf_nan=False)]
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+
+class ResponseModel(BaseModel):
+    """Response-only base: unknown engine keys pass through so the contract can extend."""
+
+    model_config = ConfigDict(extra="allow")
 
 
 class Credentials(StrictModel):
@@ -73,7 +80,7 @@ class ProfileWrite(StrictModel):
 
 
 class Source(StrictModel):
-    kind: Literal["openfoodfacts", "apify_off", "manual", "label_extraction", "demo"]
+    kind: Literal["openfoodfacts", "apify_off", "manual", "label_extraction", "demo", "dish"]
     reference: str = Field(min_length=1, max_length=500)
     retrieved_at: str | None = Field(default=None, max_length=60)
     warnings: list[str] = Field(default_factory=list, max_length=30)
@@ -117,17 +124,152 @@ class FoodObservation(StrictModel):
 
 
 class AssessmentRequest(StrictModel):
-    profile_id: str
+    profile_id: UUID
     profile_version: int = Field(ge=1)
     food: FoodObservation
     portion: Positive | None = None
 
 
 class RecommendationRequest(StrictModel):
-    assessment_id: str
+    assessment_id: UUID
     preferences: str | None = Field(default=None, max_length=500)
 
 
 class GuideRequest(StrictModel):
-    profile_id: str
+    profile_id: UUID
     profile_version: int = Field(ge=1)
+
+
+class DishIngredient(StrictModel):
+    text: str = Field(min_length=1, max_length=200)
+    reference_code: str | None = Field(default=None, min_length=1, max_length=40)
+    grams: Positive | None = None
+
+
+class DishRequest(StrictModel):
+    profile_id: UUID
+    profile_version: int = Field(ge=1)
+    name: str = Field(min_length=1, max_length=200)
+    ingredients: list[DishIngredient] = Field(min_length=1, max_length=40)
+    cooking_notes: list[str] = Field(default_factory=list, max_length=10)
+    # The cook confirms the list is complete and the dish has no packaged advisory panel.
+    declarations_confirmed: bool = False
+    portion_g: Positive | None = None
+
+
+class Finding(ResponseModel):
+    """One explanation row. `code` is stable; `title`/`detail`/`next_step` are user-facing."""
+
+    code: str = Field(min_length=2, max_length=60)
+    group: Literal["conflict", "unresolved", "consideration"]
+    title: str = Field(min_length=2, max_length=160)
+    detail: str = Field(min_length=2, max_length=700)
+    next_step: str | None = Field(default=None, max_length=400)
+    affects: list[str] = Field(default_factory=list, max_length=20)
+    message: str = Field(min_length=2, max_length=400)
+    evidence: list[str] = Field(default_factory=list, max_length=50)
+
+
+class AssessmentResult(ResponseModel):
+    rule_version: str
+    ingredient_taxonomy_version: str
+    status: Literal["recorded_conflict", "needs_information", "no_matching_concern_found"]
+    status_reason: str
+    conflicts: list[Finding]
+    unresolved: list[Finding]
+    considerations: list[Finding]
+    ingredient_findings: list[dict[str, Any]]
+    source_warnings: list[str]
+    coverage: str
+
+
+class RecommendationCandidate(ResponseModel):
+    product_id: str
+    food: dict[str, Any]
+    assessment: AssessmentResult
+    comparisons: list[dict[str, Any]]
+    improvements: list[str]
+    verified: bool = True
+    review_reasons: list[str] = Field(default_factory=list, max_length=10)
+
+
+class RecommendationResult(ResponseModel):
+    candidates: list[RecommendationCandidate]
+    needs_review: list[RecommendationCandidate] = Field(default_factory=list)
+    excluded: list[dict[str, Any]]
+    ranking_method: str
+    fallback_reason: str | None = None
+    message: str
+
+
+# --- Response wrappers appended for OpenAPI wiring (record metadata around engine payloads) ---
+
+
+class AssessmentResponse(ResponseModel):
+    id: str
+    profile_id: str
+    profile_version: int
+    profile_snapshot: dict[str, Any]
+    food: dict[str, Any]
+    result: AssessmentResult
+    created_at: str
+
+
+class AssessmentHistory(ResponseModel):
+    assessments: list[AssessmentResponse]
+    limit: int
+    offset: int
+    total: int
+
+
+class RecommendationRecord(RecommendationResult):
+    id: str
+    assessment_id: str
+
+
+class DishMatch(ResponseModel):
+    input_text: str
+    code: str
+    name: str
+    basis: str | None = None
+    grams: float | None = None
+    matched_by: str
+
+
+class DishUnmatched(ResponseModel):
+    input_text: str
+    reason: str
+
+
+class DishEstimate(ResponseModel):
+    available: bool
+    basis: str | None = None
+    nutrients: dict[str, float | None] = Field(default_factory=dict)
+    total_grams: float | None = None
+    assumptions: list[str] = Field(default_factory=list)
+
+
+class DishResult(ResponseModel):
+    name: str
+    matches: list[DishMatch]
+    unmatched: list[DishUnmatched]
+    estimate: DishEstimate
+
+
+class CookingNote(ResponseModel):
+    code: str
+    label: str
+    detail: str
+    next_step: str | None = None
+
+
+class DishOptions(ResponseModel):
+    cooking_notes: list[CookingNote]
+    unknowns: list[str] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
+
+
+class DishAssessmentResponse(ResponseModel):
+    id: str
+    dish: DishResult
+    assessment: AssessmentResult

@@ -4,11 +4,13 @@ import csv
 import hashlib
 import io
 import json
+import logging
 import math
 from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.catalog import store_product
@@ -18,6 +20,8 @@ from app.integrations.apify import ApifyReader
 from app.integrations.off import normalize_apify_off
 from app.models import RecipeRecord, ReferenceFood
 from app.schemas import FoodObservation
+
+logger = logging.getLogger(__name__)
 
 IFCT_BASE = "https://raw.githubusercontent.com/nodef/ifct2017/main/"
 IFCT_COLUMNS = {
@@ -118,6 +122,62 @@ def import_ifct(session: Session, directory: Path):
     return {"reference_foods_imported": len(rows), "packaged_products_imported": 0}
 
 
+def _record_source_id(raw: dict) -> str:
+    barcode = raw.get("barcode")
+    if isinstance(barcode, str) and barcode:
+        return barcode
+    return hashlib.sha256(json.dumps(raw, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def _safe_recipe_name(raw: dict) -> str:
+    value = raw.get("title") or raw.get("name")
+    if isinstance(value, str) and value.strip():
+        return value.strip()[:300]
+    return "Unreviewed recipe"
+
+
+def _store_apify_record(session: Session, raw, source: str, dataset_id: str, category: str | None):
+    if not isinstance(raw, dict):
+        raise ValueError("Apify record is not an object and cannot be imported")
+    if source == "off":
+        food = normalize_apify_off(raw, dataset_id, category)
+        store_product(session, food, _record_source_id(raw), raw)
+        return
+    # No actual recipe output was supplied/validated. Stage it without nutrition/suitability claims.
+    key = hashlib.sha256(json.dumps(raw, sort_keys=True, default=str).encode()).hexdigest()
+    record = session.get(RecipeRecord, key) or RecipeRecord(id=key)
+    record.name = _safe_recipe_name(raw)
+    record.raw = raw
+    record.source = {"provider": "Apify food.com actor", "dataset_id": dataset_id}
+    record.review_status = "pending_schema_validation"
+    session.add(record)
+
+
+def import_records(
+    session: Session, records, source: str, dataset_id: str, category: str | None = None
+) -> dict:
+    """Stage one bounded batch of raw Apify records.
+
+    Each row is written inside its own savepoint, so a single unusable or
+    conflicting record is skipped with a reason instead of aborting the batch.
+    """
+    imported = 0
+    skipped_reasons: list[dict] = []
+    for index, raw in enumerate(records):
+        try:
+            with session.begin_nested():
+                _store_apify_record(session, raw, source, dataset_id, category)
+            imported += 1
+        except (ValueError, TypeError, IntegrityError) as exc:
+            skipped_reasons.append({"record_index": index, "reason": str(exc)[:200]})
+            logger.warning("skipped Apify record index=%s type=%s", index, type(exc).__name__)
+    return {
+        "imported": imported,
+        "skipped": len(skipped_reasons),
+        "skipped_reasons": skipped_reasons,
+    }
+
+
 async def import_apify(
     session: Session,
     source: str,
@@ -128,43 +188,28 @@ async def import_apify(
 ):
     settings = get_settings()
     token = settings.apify_token.get_secret_value() if settings.apify_token else None
-    imported, offset = 0, 0
+    imported, skipped, offset = 0, 0, 0
+    skipped_reasons: list[dict] = []
     async with httpx.AsyncClient(timeout=30) as client:
         reader = ApifyReader(client, token)
         dataset_id = dataset_id or await reader.run_dataset(run_id)
-        while imported < limit:
-            page = await reader.items(dataset_id, limit=min(100, limit - imported), offset=offset)
+        while imported + skipped < limit:
+            page = await reader.items(
+                dataset_id, limit=min(100, limit - imported - skipped), offset=offset
+            )
             if not page:
                 break
-            for raw in page:
-                if source == "off":
-                    food = normalize_apify_off(raw, dataset_id, category)
-                    store_product(
-                        session,
-                        food,
-                        str(
-                            raw.get("barcode")
-                            or hashlib.sha256(json.dumps(raw, sort_keys=True).encode()).hexdigest()
-                        ),
-                        raw,
-                    )
-                else:
-                    # No actual recipe output was supplied/validated. Stage it without nutrition/suitability claims.
-                    key = hashlib.sha256(json.dumps(raw, sort_keys=True).encode()).hexdigest()
-                    record = session.get(RecipeRecord, key) or RecipeRecord(id=key)
-                    record.name = str(raw.get("title") or raw.get("name") or "Unreviewed recipe")[
-                        :300
-                    ]
-                    record.raw = raw
-                    record.source = {"provider": "Apify food.com actor", "dataset_id": dataset_id}
-                    record.review_status = "pending_schema_validation"
-                    session.add(record)
-                imported += 1
+            summary = import_records(session, page, source, dataset_id, category)
+            imported += summary["imported"]
+            skipped += summary["skipped"]
+            skipped_reasons.extend(summary["skipped_reasons"])
             offset += len(page)
             # Commit each bounded page; no database transaction is held for the next network request.
             session.commit()
     return {
         "imported": imported,
+        "skipped": skipped,
+        "skipped_reasons": skipped_reasons,
         "dataset_id": dataset_id,
         "source": source,
         "status": "requires_label_confirmation" if source == "off" else "staged_for_review",

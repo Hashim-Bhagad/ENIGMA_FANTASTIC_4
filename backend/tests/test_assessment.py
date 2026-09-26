@@ -70,7 +70,10 @@ def test_replacements_check_every_restriction_and_do_not_fill_unknowns():
     ]
     result = select_replacements(profile, food(), candidates)
     assert [x["product_id"] for x in result["candidates"]] == ["good"]
-    assert len(result["excluded"]) == 3
+    assert {item["product_id"] for item in result["excluded"]} == {"milk", "liquid"}
+    # Unknown advisory data blocks verification, so it lands in the review tier, not excluded.
+    assert [x["product_id"] for x in result["needs_review"]] == ["unknown"]
+    assert result["needs_review"][0]["verified"] is False
 
 
 def test_missing_goal_nutrient_is_not_zero():
@@ -92,7 +95,7 @@ def test_wheat_flour_synonyms_preserve_refined_and_whole_wheat_subtypes():
         ProfileData(allergies=["wheat"]),
         food(ingredients_text="Maida, all-purpose flour, whole-wheat atta"),
     )
-    assert result["rule_version"].endswith(".4")
+    assert result["rule_version"].endswith(".5")
     assert result["ingredient_taxonomy_version"] == TAXONOMY_VERSION
     flour = [item for item in result["ingredient_findings"] if item["canonical_group"] == "flour"]
     assert [item["subtype"] for item in flour] == [

@@ -1,8 +1,11 @@
+import logging
 import re
 
 import httpx
 
 from app.integrations.off import ProviderError
+
+logger = logging.getLogger(__name__)
 
 
 class ApifyReader:
@@ -20,6 +23,12 @@ class ApifyReader:
             response.raise_for_status()
             return response.json()
         except (httpx.HTTPError, ValueError) as exc:
+            logger.warning(
+                "Apify read failed path=%s status=%s type=%s",
+                path,
+                getattr(getattr(exc, "response", None), "status_code", None),
+                type(exc).__name__,
+            )
             raise ProviderError(
                 "Apify data could not be read; check the existing dataset ID and access permissions."
             ) from exc

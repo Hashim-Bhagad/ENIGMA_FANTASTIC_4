@@ -60,3 +60,35 @@ def test_trace_explains_missing_basis_missing_values_and_quarantined_amounts():
         )
         assert entry["status"] == status
         assert entry["value"] is None and entry["reason"]
+
+
+def test_trace_marks_confirmed_empty_advisory_as_absent_not_missing():
+    from app.schemas import FoodObservation
+
+    food = FoodObservation.model_validate(
+        {
+            "name": "Reviewed cracker",
+            "basis": "100g",
+            "ingredients_text": "Rice flour",
+            "advisories_text": "",
+            "ingredients_complete": True,
+            "advisories_complete": True,
+            "nutrients": {"sodium_mg": 200},
+            "source": {"kind": "manual", "reference": "Human checked package"},
+        }
+    )
+    product = Product(
+        id="reviewed-product",
+        name=food.name,
+        barcode=None,
+        source_kind="manual",
+        source_id="reviewed",
+        observation=food.model_dump(mode="json"),
+        raw={"reviewed_observation": food.model_dump(mode="json")},
+        updated_at=datetime.now(UTC),
+    )
+    fields = {item["field"]: item for item in product_provenance(product)["fields"]}
+    assert fields["advisories_text"]["status"] == "confirmed_absent"
+    assert fields["advisories_text"]["complete"] is True
+    assert fields["ingredients_text"]["status"] == "available"
+    assert fields["ingredients_text"]["complete"] is True

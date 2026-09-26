@@ -25,6 +25,16 @@ class Settings(BaseSettings):
     fireworks_model: str = "accounts/fireworks/models/deepseek-v4p1-flash"
     label_timeout: float = Field(default=45, gt=0, le=90)
     label_max_tokens: int = Field(default=2048, ge=128, le=4096)
+    # Per-process token-bucket rate limiting. Limits are resolved per request, so
+    # changing them (or RATE_LIMIT_ENABLED) takes effect without a rebuild.
+    rate_limit_enabled: bool = True
+    rate_limit_auth_per_minute: int = Field(default=10, ge=1, le=10000)
+    rate_limit_label_extract_per_minute: int = Field(default=10, ge=1, le=10000)
+    rate_limit_provider_reads_per_minute: int = Field(default=30, ge=1, le=10000)
+    rate_limit_recommendations_per_minute: int = Field(default=20, ge=1, le=10000)
+    # Reject any request body larger than this before a route can buffer it.
+    max_body_bytes: int = Field(default=6 * 1024 * 1024, ge=1024)
+    log_level: str = "INFO"
 
     @field_validator("apify_token", "typesafe_api_key", "fireworks_api_key", mode="before")
     @classmethod

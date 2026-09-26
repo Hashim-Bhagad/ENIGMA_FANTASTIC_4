@@ -1,3 +1,4 @@
+import logging
 import math
 import re
 from datetime import UTC, datetime
@@ -6,6 +7,8 @@ import httpx
 
 from app.schemas import FoodObservation
 from app.services.assessment import split_advisories
+
+logger = logging.getLogger(__name__)
 
 FIELDS = "code,product_name,product_name_en,brands,categories_tags,ingredients_text,ingredients_text_en,allergens_tags,traces_tags,nutriments,nutrition_data_per,last_modified_t"
 NUTRIENTS = {
@@ -164,6 +167,8 @@ def normalize_off(raw: dict, category: str | None = None) -> FoodObservation:
 
 def normalize_apify_off(raw: dict, dataset_id: str, category: str | None = None):
     # This flattened actor has no reliable nutrient-unit/basis metadata. Read raw originals for assessment.
+    if not isinstance(raw, dict):
+        raise ValueError("Apify record is not an object and cannot be imported")
     declared, advisory = split_advisories(raw.get("ingredients_text"))
     nutrients = {}
     for target, _ in NUTRIENTS.values():
@@ -171,10 +176,23 @@ def normalize_apify_off(raw: dict, dataset_id: str, category: str | None = None)
     warnings = [
         "Flattened Apify export lacks explicit nutrient units and separates allergen/advisory information incompletely; confirm against the original OFF record."
     ]
+    barcode = None
+    code = raw.get("barcode")
+    if code not in (None, ""):
+        # Never coerce a dict/list into a barcode string; skip the row instead.
+        if isinstance(code, bool) or not isinstance(code, (str, int)):
+            raise ValueError("Apify record has a non-scalar barcode and cannot be imported")
+        code_text = str(code)
+        if BARCODE_PATTERN.fullmatch(code_text):
+            barcode = code_text
+        else:
+            warnings.append(
+                "Source barcode has an unsupported format and was not used as a barcode."
+            )
     return FoodObservation(
         name=raw.get("product_name") or "Unnamed imported product",
         brand=raw.get("brands") or None,
-        barcode=str(raw["barcode"]) if raw.get("barcode") else None,
+        barcode=barcode,
         category=category,
         basis=None,
         ingredients_text=declared or None,
@@ -195,12 +213,9 @@ class OpenFoodFacts:
         self.headers = {"User-Agent": user_agent}
 
     async def product(self, barcode: str) -> dict | None:
+        url = f"https://world.openfoodfacts.org/api/v3/product/{barcode}.json"
         try:
-            response = await self.client.get(
-                f"https://world.openfoodfacts.org/api/v3/product/{barcode}.json",
-                params={"fields": FIELDS},
-                headers=self.headers,
-            )
+            response = await self.client.get(url, params={"fields": FIELDS}, headers=self.headers)
             if response.status_code == 404:
                 return None
             response.raise_for_status()
@@ -209,15 +224,22 @@ class OpenFoodFacts:
                 return None
             return data["product"]
         except (httpx.HTTPError, ValueError, KeyError) as exc:
+            logger.warning(
+                "Open Food Facts product lookup failed url=%s status=%s type=%s",
+                url,
+                getattr(getattr(exc, "response", None), "status_code", None),
+                type(exc).__name__,
+            )
             raise ProviderError(
                 "Open Food Facts lookup failed; use a saved record or manual label entry."
             ) from exc
 
     async def search(self, query: str, limit: int = 5) -> list[dict]:
         # The current documented product endpoint is v3; this is the separately tested legacy search endpoint.
+        url = "https://world.openfoodfacts.org/cgi/search.pl"
         try:
             response = await self.client.get(
-                "https://world.openfoodfacts.org/cgi/search.pl",
+                url,
                 params={
                     "search_terms": query,
                     "search_simple": 1,
@@ -231,6 +253,12 @@ class OpenFoodFacts:
             response.raise_for_status()
             return response.json().get("products", [])[:limit]
         except (httpx.HTTPError, ValueError, TypeError) as exc:
+            logger.warning(
+                "Open Food Facts search failed url=%s status=%s type=%s",
+                url,
+                getattr(getattr(exc, "response", None), "status_code", None),
+                type(exc).__name__,
+            )
             raise ProviderError(
                 "Open Food Facts search is unavailable; saved catalog search is still available."
             ) from exc

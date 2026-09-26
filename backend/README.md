@@ -1,6 +1,8 @@
 # SafeBitez backend
 
-FastAPI owns accounts, saved dietary profiles, product observations, ingredient matching, assessment history, and packaged-product comparisons. PostgreSQL stores the records; the Expo app talks only to this API.
+FastAPI owns accounts, saved dietary profiles, product observations, ingredient matching,
+assessment history, cooked-meal estimates, and packaged-product comparisons. PostgreSQL
+stores the records; the Expo app talks only to this API.
 
 ## Start with Docker
 
@@ -38,24 +40,149 @@ uv --directory backend run uvicorn app.main:app --host 0.0.0.0 --port 8000 --rel
 
 The host `DATABASE_URL` in `backend/.env` must use `localhost:5433` and the same PostgreSQL credentials. Compose supplies an internal `db:5432` URL to the container separately. From inside `backend/`, omit `--directory backend` from the uv commands.
 
+## Authentication
+
+`POST /api/auth/register` and `POST /api/auth/login` are the only public `/api/*` routes.
+Every other `/api/*` route requires `Authorization: Bearer <access_token>`; a missing,
+expired, or invalid token returns HTTP 401 with `code: "unauthorized"`. Registration
+returns HTTP 201. Tokens are HS256 JWTs scoped to the user ID and expire after
+`TOKEN_MINUTES` (default 30). `/health/live`, `/health/ready`, and `/docs` stay open.
+
+Accounts are isolated: a personal record that belongs to another account returns HTTP 404
+rather than 403, so its existence is not disclosed.
+
+## Errors, rate limits, and request size
+
+Every error response keeps FastAPI's `detail` and adds a stable `code` field, so clients
+can branch without matching prose:
+
+| `code` | Typical status | Meaning |
+| --- | --- | --- |
+| `validation_error` | 400, 422 | Request or field failed validation; `detail` is FastAPI's list for 422. |
+| `unauthorized` | 401 | Missing, expired, or invalid bearer token, or wrong credentials. |
+| `forbidden` | 403 | Reserved for explicit refusals; personal-not-found cases use 404. |
+| `not_found` | 404 | The requested record does not exist or is not owned by the caller. |
+| `conflict` | 409 | Stale profile version, duplicate email, or a racing catalog write. |
+| `rate_limited` | 429 | Rate limit exceeded; the response also carries `Retry-After` seconds. |
+| `payload_too_large` | 413 | Declared or streamed request body exceeded the cap. |
+| `unsupported_media_type` | 415 | Reserved for unsupported upload content types. |
+| `provider_unavailable` | 503 | Open Food Facts, Fireworks, or TypeSafe failed or timed out. |
+| `internal_error` | 5xx | Unhandled server failure. |
+
+Rate limits are token buckets with defaults resolved from configuration. They are
+per-process (the app assumes a single Uvicorn worker) and can be disabled entirely with
+`RATE_LIMIT_ENABLED=false`.
+
+| Scope | Default | Keyed by |
+| --- | --- | --- |
+| `POST /api/auth/register`, `POST /api/auth/login` | 10 / minute | client IP |
+| `POST /api/labels/extract` | 10 / minute | user |
+| Provider-touching product reads (`GET /api/products/barcode/{barcode}`, `GET /api/products/search/live`, `GET /api/products/search`) | 30 / minute | user |
+| `POST /api/recommendations` | 20 / minute | user |
+
+A middleware enforces a maximum request body of `MAX_BODY_BYTES` (default 6 MiB,
+`6291456`). A declared `Content-Length` over the cap is rejected immediately with 413;
+streamed bodies are counted as they arrive. The label route keeps its own lower 5 MiB read
+cap for the `file` upload inside that limit. Provider-touching product reads also return
+`Cache-Control: no-store`. `LOG_LEVEL` (default `INFO`) controls logging.
+
 ## API journey
 
 | Step | Endpoint | Behaviour |
 | --- | --- | --- |
-| Register / sign in | `POST /api/auth/register`, `POST /api/auth/login` | Returns an access token; passwords use Argon2 hashing. |
+| Register / sign in | `POST /api/auth/register`, `POST /api/auth/login` | Returns an access token; passwords use Argon2 hashing. Both are public. |
 | Identity | `GET /api/auth/me` | Uses `Authorization: Bearer <access_token>`. |
 | Save / load profile | `PUT /api/profiles/me`, `GET /api/profiles/me` | Saves allergies, conditions, exclusions, clinician limits, comparison goals, and preferences. |
-| Search / scan | `GET /api/products/search?q=...&include_live=true`, `GET /api/products/barcode/{barcode}` | Searches saved names/brands and Open Food Facts; numeric barcodes use lookup. |
+| Guidance | `POST /api/profiles/guide` | Explains recorded restrictions and explicitly lists unsupported conditions. |
+| Search saved catalog | `GET /api/products?q=&category=&limit=` | Case-insensitive name/brand match in the local catalog; `limit` is 1–50, default 20. |
+| Search (unified) | `GET /api/products/search?q=&include_live=` | Numeric queries take the barcode path; names search saved records and, with `include_live=true`, Open Food Facts. Live failure keeps saved results. |
+| Search live only | `GET /api/products/search/live?q=` | Direct Open Food Facts search and persistence; at least two characters. |
+| Barcode | `GET /api/products/barcode/{barcode}` | 8, 12, 13, or 14 digit barcode; saved snapshot unless `refresh=true`. |
+| Load product | `GET /api/products/{product_id}` | Saved normalized observation. |
+| Trace a value | `GET /api/products/{product_id}/provenance` | Per-field source mapping, raw values, units, conversions, missing-data reasons, timestamps, and a source-response hash. |
+| Composition reference | `GET /api/reference-foods?q=&limit=` | IFCT ingredient reference, separate from branded labels; `limit` is 1–30, default 10. |
 | Read a photo | `POST /api/labels/extract` | Authenticated JPEG/PNG multipart upload named `file`; returns observations for user correction and confirmation. |
+| Cooked-meal options | `GET /api/dishes/options` | Cooking-note options plus the estimator's assumptions and unknowns. |
+| Assess a cooked meal | `POST /api/dishes/assess` | Estimates dish composition from matched IFCT ingredients and returns an assessment. |
 | Assess | `POST /api/assessments` | Requires the current `profile_id`, `profile_version`, and reviewed `food`; optional `portion` is grams for 100g or millilitres for 100ml. |
 | Compare alternatives | `POST /api/recommendations` | Uses `assessment_id` and optional preferences; saves the comparison run. |
-| History | `GET /api/assessments`, `GET /api/assessments/{id}`, `GET /api/recommendations/{id}` | Personal records are scoped to their owner. |
-| Guidance | `POST /api/profiles/guide` | Explains recorded restrictions and explicitly lists unsupported conditions. |
-| Composition reference | `GET /api/reference-foods?q=...` | IFCT ingredient reference, separate from branded labels. |
+| History | `GET /api/assessments?limit=&offset=` | Returns `assessments`, `limit`, `offset`, and `total`; `limit` is 1–50 (default 20) and `offset` defaults to 0. |
+| Assessment detail | `GET /api/assessments/{id}` | Owned assessment with profile and food snapshots and the stored result. |
+| Saved recommendation | `GET /api/recommendations/{id}` | Owned comparison run. |
 
 Profile writes use `expected_version`: omit it for the first save, then send the last returned version. Assessments store profile and food snapshots. A changed profile produces HTTP 409 for stale writes, new assessments, or replacement requests. Access tokens expire; HTTP 401 requires signing in again. HTTP 404 hides another account's personal records. Provider failure returns an explicit fallback or HTTP 503; missing data stays unknown.
 
 A `FoodObservation` contains separate `ingredients_text` and `advisories_text`, completeness flags, a `100g`/`100ml` nutrient basis, nullable nutrient values, and source provenance. An explicit empty advisory statement plus `advisories_complete=true` means the user confirmed its absence. A missing statement does not mean no advisory exists. `/docs` contains the full JSON contracts.
+
+Source traces identify exactly which saved API field supplied each normalized value. For example, Open Food Facts `nutriments.sodium_100g` is read in grams and multiplied by 1000 to produce `sodium_mg`. Its salt field is shown separately and is not used by our code to derive sodium. Open Food Facts may derive fields upstream, so an API field does not prove direct printed-label measurement. Matching catalog traces are copied into assessment results at assessment time; submitted corrections and profile snapshots remain separate from the original catalog values. Old history does not change when the catalog or profile is updated.
+
+## Assessment findings
+
+An assessment result has a `status` of `recorded_conflict`, `needs_information`, or
+`no_matching_concern_found`, plus a human-readable `status_reason`. Missing-information
+findings are retained even when a known conflict is present.
+
+Each finding carries a stable `code`, a `group` of `conflict`, `unresolved`, or
+`consideration`, and user-facing `title`, `detail`, optional `next_step`, `affects`, the
+backward-compatible `message`, and `evidence`. Engine-specific numeric keys (for example
+`portion_amount`, `maximum`, `scope`, `source`, `daily_limit_percent`, `nutrient`) pass
+through alongside them. The result keeps `rule_version`, `ingredient_taxonomy_version`,
+`source_warnings`, and `coverage` ("Checks apply only to supported recorded restrictions
+and available declarations; this is not an overall safety verdict.").
+
+A daily nutrient limit is reported as a portion contribution percentage, not a per-product
+allowance; the app does not track total daily intake. A `portion` maximum can produce a
+conflict when the calculated amount exceeds it.
+
+## Replacement results
+
+`POST /api/recommendations` returns candidates in two tiers that are never merged:
+
+- `candidates` — catalog records that passed every required check, with `verified: true`
+  and an empty `review_reasons`.
+- `needs_review` — records blocked **only** by unknown or incomplete data (never by a
+  failed rule). These carry `verified: false`, short `review_reasons`, and are capped at
+  five. They are unconfirmed community/Open Food Facts data; no check is relaxed to place
+  a record here.
+- `excluded` — records that failed a concrete rule (`product_id` plus `reason`), such as
+  a remaining recorded conflict or no supported improvement.
+
+Ranking is deterministic in the user's declared goal order. Jev/TypeSafe may reorder only
+candidates tied on the checked comparison values; it cannot change eligibility, revive an
+excluded record, or alter a nutrient amount. The response also carries `ranking_method`,
+optional `fallback_reason`, and a `message`.
+
+## Cooked meals
+
+`GET /api/dishes/options` returns `cooking_notes` (each with `code`, `label`, `detail`,
+`next_step`), the estimator's `unknowns`, and its `assumptions`.
+
+`POST /api/dishes/assess` takes a `DishRequest` (`profile_id`, `profile_version`, `name`,
+one or more `ingredients`, optional `cooking_notes`, `declarations_confirmed`, optional
+`portion_g`) and returns the saved `id` plus:
+- `dish.name`, `dish.matches` (`input_text`, `code`, `name`, `basis`, `grams`, `matched_by`),
+  and `dish.unmatched` (`input_text`, `reason`);
+- `dish.estimate` with `available`, `basis`, `nutrients`, `total_grams`, and `assumptions`;
+- `assessment`, the same result shape the packaged-product path returns.
+
+The estimate is deliberately conservative (the "honest estimate" rules):
+
+- `estimate.available` is true only when **every** ingredient has a gram amount **and**
+  matched a ReferenceFood (IFCT) row — by explicit `reference_code`, otherwise by exact
+  normalized name. Matching is never fuzzy.
+- When available, `basis` is `"100g"` and each nutrient is the sum over ingredients divided
+  by `total_grams`, times 100. A nutrient stays unknown (present but `null`) unless every
+  ingredient reports it.
+- Otherwise `basis` is `null` and `nutrients` is empty; nothing is guessed.
+- Only the label nutrient vocabulary is used (`sodium_mg`, `potassium_mg`,
+  `phosphorus_mg`, `protein_g`, `fat_g`, `fiber_g`, `energy_kcal`). IFCT available
+  carbohydrate and free sugars are not mapped to label total carbohydrate and sugars.
+- `declarations_confirmed=true` sets both completeness flags and an explicit empty advisory
+  string; otherwise they stay false/null.
+
+A deprecated compatibility alias, `POST /api/assessments/dish`, still runs the same service
+but returns the assessment-record envelope (`result.dish` holds the dish block). New clients
+should use `POST /api/dishes/assess`.
 
 ## Hidden ingredient names
 
@@ -63,11 +190,7 @@ A `FoodObservation` contains separate `ingredients_text` and `advisories_text`, 
 
 Maida, all-purpose flour, and other refined wheat flour terms resolve to a shared subtype. Whole-wheat flour/atta remains distinct. Sugar terms, polyols, and non-nutritive sweeteners are separate groups. Generic flour, syrup, or sweetener descriptions can remain ambiguous. Matching detects declared names; it cannot discover an undeclared ingredient or determine its amount. A name match does not establish medical suitability or that all members have identical nutritional effects.
 
-## Assessment and recommendations
-
-Deterministic code checks declared ingredients, allergen advisories, ingredient exclusions, and explicitly recorded personal limits. Conditions provide awareness prompts; selecting a condition does not activate a complete clinical diet. Daily nutrient limits are shown as portion contributions rather than automatically becoming a per-product allowance.
-
-Alternatives come from the catalog and must have the same supported food category and comparable measurement basis. Required restrictions and comparison data are checked before ranking. Missing data can exclude a candidate. Results include the checked differences and exclusions; an empty result is valid when the catalog cannot support a comparison. Synthetic records are visibly labelled.
+Deterministic code checks declared ingredients, allergen advisories, ingredient exclusions, and explicitly recorded personal limits. Conditions provide awareness prompts; selecting a condition does not activate a complete clinical diet.
 
 ## Data imports
 
@@ -86,11 +209,19 @@ docker compose --env-file backend/.env exec api python -m app.importers apify --
 
 To add real replacement candidates, inspect their physical labels and create a JSON list of `{"source_id": "stable-catalog-id", "food": {...}}` records. `food` follows the `/docs` observation schema, uses `source.kind="manual"`, includes a reviewed category, and has both completeness flags set after checking the ingredient and advisory panels. Then run `uv --directory backend run python -m app.importers reviewed-products --file /path/to/reviewed-products.json`. The importer validates the entire file before writing and updates existing stable IDs. Community lookups do not overwrite these reviewed snapshots. A reviewed snapshot still needs replacement when its package variant or formulation changes.
 
-IFCT contains 542 reference foods. Its units are read from the dataset metadata; available carbohydrate and free sugar are kept distinct from total label carbohydrate and sugars. Food.com records can be staged with `--source recipes`; their schema and quantities require review before any dish assessment. Barcode List has no validated structured API and is not used as a nutrition source. Source verification details are in `../docs/source-verification/`.
+IFCT contains 542 reference foods. Its units are read from the dataset metadata; available carbohydrate and free sugar are kept distinct from total label carbohydrate and sugars. Food.com records can be staged with `--source recipes`; their schema and quantities require review before any dish assessment. Barcode List has no validated structured API and is not used as a nutrition source. Source verification details are in `../docs/source-verification/`. Data licensing is in `../NOTICE`.
 
-## AI boundaries
+## AI boundaries and third-party data
 
-Fireworks is configured through `FIREWORKS_API_KEY` and `FIREWORKS_MODEL`; photo extraction requires a compatible vision model and structured output. Extracted observations require review, and code performs unit conversion. Jev/TypeSafe uses `TYPESAFE_API_KEY` and `TYPESAFE_MODEL` for optional preference scoring of already checked candidates. It may break numeric comparison ties; it cannot change eligibility, clinical rules, or nutrient facts. Without usable model responses, manual label entry and deterministic ranking remain available.
+Fireworks is configured through `FIREWORKS_API_KEY` and `FIREWORKS_MODEL`; photo extraction requires a compatible vision model and structured output. Extracted observations require review, and code performs unit conversion. Jev/TypeSafe uses `TYPESAFE_API_KEY` and `TYPESAFE_MODEL` for optional preference scoring of already checked candidates. It may break numeric comparison ties; it cannot change eligibility, clinical rules, or nutrient facts. Without usable model responses, manual label entry and deterministic ranking remain available. This replaced an earlier Gemini adapter; there are no remaining `GEMINI_*` settings.
+
+Data sent to third parties is deliberately narrow:
+
+- **Fireworks** receives the uploaded label photograph for extraction. It does not receive
+  identity, conditions, limits, or saved history.
+- **Jev/TypeSafe** receives the user's free-text preference plus, for the candidates being
+  scored, the product name, category, and ingredient text. It never receives identity,
+  conditions, allergies, limits, or assessment IDs.
 
 Both production adapters passed a bounded synthetic live contract check on 2026-09-26. See `scripts/provider-live-verification.md` for evidence and the opt-in repeat command. This checks connectivity and output shape, not accuracy on real food packaging. Normal photo extraction uses `LABEL_MAX_TOKENS=2048` by default; the synthetic verifier uses a smaller cap. `.dockerignore` keeps credentials, the host virtual environment, and downloaded raw data out of the Docker build context.
 
@@ -98,9 +229,19 @@ Both production adapters passed a bounded synthetic live contract check on 2026-
 
 ```sh
 uv --directory backend run pytest -q
+uv --directory backend run pytest -q tests/test_api.py
 uv --directory backend run ruff check app tests scripts
 uv --directory backend run ruff format --check app tests scripts
 uv --directory backend run python scripts/runtime_api_smoke.py
 ```
 
-The test suite uses SQLite by default and mocks external providers. The runtime smoke script uses real PostgreSQL and HTTP with generated accounts and synthetic foods; it leaves those records in the local database. See `scripts/runtime-api-smoke.md`. Provider verification is separate from application tests so a provider outage does not masquerade as an application logic failure.
+The default suite uses SQLite and mocks external providers; the backend suite is 60+ tests.
+Tests that need PostgreSQL migrations and contract checks skip unless `TEST_DATABASE_URL`
+points at a disposable `*_test` database. CI (`.github/workflows/ci.yml`) runs
+`uv sync --locked`, then `ruff check` and `ruff format --check`, then pytest twice: once
+in SQLite mode with `TEST_DATABASE_URL=""`, then again against a PostgreSQL 17 service for
+the migration and contract tests. A second CI job typechecks, tests, and lints the frontend.
+The runtime smoke script uses real PostgreSQL and HTTP with generated accounts and synthetic
+foods; it leaves those records in the local database. See `scripts/runtime-api-smoke.md`.
+Provider verification is separate from application tests so a provider outage does not
+masquerade as an application logic failure.

@@ -1,12 +1,15 @@
 import asyncio
 import base64
 import json
+import logging
 
 import httpx
 
 from app.config import Settings
 from app.integrations.off import ProviderError, valid_nutrient
 from app.schemas import FoodObservation
+
+logger = logging.getLogger(__name__)
 
 LABEL_NUTRIENTS = [
     "sodium_mg",
@@ -170,6 +173,11 @@ class ModelAssist:
             TypeError,
             AttributeError,
         ) as exc:
+            logger.warning(
+                "label extraction provider failed status=%s type=%s",
+                getattr(getattr(exc, "response", None), "status_code", None),
+                type(exc).__name__,
+            )
             raise ProviderError(
                 "Label extraction failed or returned unusable observations; enter or correct the label manually."
             ) from exc
@@ -247,6 +255,11 @@ class ModelAssist:
                         raise ValueError("Uncertain preference score")
                     scores[c["product_id"]] = {"score": score, "confidence": confidence}
         except (httpx.HTTPError, TimeoutError, ValueError, TypeError, KeyError) as exc:
+            logger.warning(
+                "preference ranking provider failed status=%s type=%s",
+                getattr(getattr(exc, "response", None), "status_code", None),
+                type(exc).__name__,
+            )
             return {
                 **result,
                 "fallback_reason": "jev_uncertain_or_unavailable",
